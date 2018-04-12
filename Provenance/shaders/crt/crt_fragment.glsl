@@ -46,8 +46,8 @@ uniform vec2 FinalRes;
 #define SHADOW_MASK_HARDNESS 16.0
 #define TVL 360.0
 #define WARP_EDGE_HARDNESS 256.0
-#define WARP_X ( 1.0 / 64.0 )
-#define WARP_Y ( 1.0 / 24.0 )
+#define WARP_X ( 0.0 )
+#define WARP_Y ( 0.0 )
 
 float ToLinear1(float c){return(c<=0.04045)?c/12.92:pow((c+0.055)/1.055,2.4);}
 vec3 ToLinear(vec3 c){return c*c;}//return vec3(ToLinear1(c.r),ToLinear1(c.g),ToLinear1(c.b));}
