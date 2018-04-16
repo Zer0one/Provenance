@@ -42,14 +42,14 @@ class PVSettingsViewController: UITableViewController, SFSafariViewControllerDel
     @IBOutlet weak var importLabel: UILabel!
     @IBOutlet weak var tintSwitch: UISwitch!
     @IBOutlet weak var startSelectSwitch: UISwitch!
-    
 
     @IBOutlet weak var themeValueLabel: UILabel!
 
     var gameImporter: PVGameImporter?
 
     @IBAction func wikiLinkButton(_ sender: Any) {
-        UIApplication.shared.openURL((URL(string: "https://github.com/Provenance-Emu/Provenance/wiki/Importing-ROMs"))!)
+		let webVC = WebkitViewController(url: URL(string: "https://github.com/Provenance-Emu/Provenance/wiki/Importing-ROMs")!)
+		navigationController?.pushViewController(webVC, animated: true)
     }
 
     @IBAction func done(_ sender: Any) {
@@ -131,7 +131,8 @@ class PVSettingsViewController: UITableViewController, SFSafariViewControllerDel
     }
 
     @IBAction func help(_ sender: Any) {
-        UIApplication.shared.openURL((URL(string: "https://github.com/Provenance-Emu/Provenance/wiki"))!)
+		let webVC = WebkitViewController(url: URL(string: "https://github.com/Provenance-Emu/Provenance/wiki")!)
+		navigationController?.pushViewController(webVC, animated: true)
     }
 
     @IBAction func toggleFPSCount(_ sender: Any) {
@@ -180,7 +181,7 @@ class PVSettingsViewController: UITableViewController, SFSafariViewControllerDel
     @IBAction func toggleStartSelectAlwaysOn(_ sender: Any) {
               PVSettingsModel.sharedInstance().startSelectAlwaysOn = startSelectSwitch.isOn
     }
-    
+
     // Show web server (stays on)
     @available(iOS 9.0, *)
     func showServer() {

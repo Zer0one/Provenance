@@ -10,11 +10,25 @@
 #import "NSObject+PVAbstractAdditions.h"
 #import "OERingBuffer.h"
 #import "RealTimeThread.h"
+#import <AVFoundation/AVFoundation.h>
+
+/* Timing */
+#include <mach/mach_time.h>
+#import <QuartzCore/QuartzCore.h>
+
+//#define PVTimestamp(x) (((double)mach_absolute_time(x)) * 1.0e-09  * timebase_ratio)
+#define PVTimestamp() CACurrentMediaTime()
+#define GetSecondsSince(x) (PVTimestamp() - x)
 
 static Class PVEmulatorCoreClass = Nil;
 static NSTimeInterval defaultFrameInterval = 60.0;
 
-NSString *const PVEmulatorCoreErrorDomain = @"com.jamsoftonline.EmulatorCore.ErrorDomain";
+// Different machines have different mach_absolute_time to ms ratios
+// calculate this on init
+static double timebase_ratio;
+
+
+NSString *const PVEmulatorCoreErrorDomain = @"com.provenance-emu.EmulatorCore.ErrorDomain";
 
 @interface PVEmulatorCore()
 @property (nonatomic, assign) CGFloat  framerateMultiplier;
@@ -28,6 +42,14 @@ NSString *const PVEmulatorCoreErrorDomain = @"com.jamsoftonline.EmulatorCore.Err
     {
         PVEmulatorCoreClass = [PVEmulatorCore class];
     }
+
+
+	if (timebase_ratio == 0) {
+		mach_timebase_info_data_t s_timebase_info;
+		(void) mach_timebase_info(&s_timebase_info);
+
+		timebase_ratio = (float)s_timebase_info.numer / s_timebase_info.denom;
+	}
 }
 
 - (id)init
@@ -66,6 +88,9 @@ NSString *const PVEmulatorCoreErrorDomain = @"com.jamsoftonline.EmulatorCore.Err
     {
 		if (!isRunning)
 		{
+#if !TARGET_OS_TV
+			[self setPreferredSampleRate:[self audioSampleRate]];
+#endif
 			isRunning  = YES;
 			shouldStop = NO;
             self.gameSpeed = GameSpeedNormal;
@@ -126,11 +151,13 @@ NSString *const PVEmulatorCoreErrorDomain = @"com.jamsoftonline.EmulatorCore.Err
     // For FPS computation
     int frameCount = 0;
     int framesTorn = 0;
-    NSDate *fpsCounter = [NSDate date];
-    
+
+	NSTimeInterval fpsCounter = PVTimestamp();
+
     //Setup Initial timing
-    NSDate *origin = [NSDate date];
-    NSTimeInterval sleepTime;
+	NSTimeInterval origin = PVTimestamp();
+
+	NSTimeInterval sleepTime = 0;
     NSTimeInterval nextEmuTick = GetSecondsSince(origin);
     
     [self.emulationLoopThreadLock lock];
@@ -190,18 +217,18 @@ NSString *const PVEmulatorCoreErrorDomain = @"com.jamsoftonline.EmulatorCore.Err
         else if (sleepTime < -0.1) {
             // We're behind, we need to reset emulation time,
             // otherwise emulation will "catch up" to real time
-            origin = [NSDate date];
+            origin = PVTimestamp();
             nextEmuTick = GetSecondsSince(origin);
         }
 
         // Compute FPS
-        NSTimeInterval timeSinceLastFPS = GetSecondsSince(fpsCounter);
+		NSTimeInterval timeSinceLastFPS = GetSecondsSince(fpsCounter);
         if (timeSinceLastFPS >= 0.5) {
             self.emulationFPS = (double)frameCount / timeSinceLastFPS;
             self.renderFPS = (double)(frameCount - framesTorn) / timeSinceLastFPS;
             frameCount = 0;
             framesTorn = 0;
-            fpsCounter = [NSDate date];
+			fpsCounter = PVTimestamp();
         }
         
     }
@@ -240,6 +267,40 @@ NSString *const PVEmulatorCoreErrorDomain = @"com.jamsoftonline.EmulatorCore.Err
     }
     gameInterval = 1.0 / ([self frameInterval] * framerateMultiplier);
 }
+
+#if !TARGET_OS_TV
+- (Float64) getSampleRate {
+	Float64 sampleRate;
+	UInt32 srSize = sizeof (sampleRate);
+	OSStatus error =
+	AudioSessionGetProperty(
+							kAudioSessionProperty_CurrentHardwareSampleRate,
+							&srSize,
+							&sampleRate);
+	if (error == noErr) {
+		NSLog (@"CurrentHardwareSampleRate = %f", sampleRate);
+		return sampleRate;
+	} else {
+		return 48.0;
+	}
+}
+
+- (BOOL) setPreferredSampleRate:(double)preferredSampleRate {
+	double preferredSampleRate2 = preferredSampleRate ?: 48000;
+
+	AVAudioSession* session = [AVAudioSession sharedInstance];
+	BOOL success;
+	NSError* error = nil;
+	success  = [session setPreferredSampleRate:preferredSampleRate2 error:&error];
+	if (success) {
+		NSLog (@"session.sampleRate = %f", session.sampleRate);
+	} else {
+		NSLog (@"error setting sample rate %@", error);
+	}
+
+	return success;
+}
+#endif
 
 - (void)executeFrame
 {
