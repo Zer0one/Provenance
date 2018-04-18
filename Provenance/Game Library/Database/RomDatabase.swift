@@ -345,8 +345,9 @@ public extension RomDatabase {
 		}
 		#endif
 
-		game.saveStates.forEach { try! $0.delete() }
-		game.recentPlays.forEach { try! $0.delete() }
+		game.saveStates.forEach { try? $0.delete() }
+		game.recentPlays.forEach { try? $0.delete() }
+		game.screenShots.forEach { try? $0.delete() }
 
 		deleteRelatedFilesGame(game)
 		try? game.delete()
@@ -354,6 +355,10 @@ public extension RomDatabase {
 
 	func deleteRelatedFilesGame(_ game: PVGame) {
 
+		game.relatedFiles.forEach {
+			try? FileManager.default.removeItem(at: $0.url )
+		}
+		
 		guard let system = game.system else {
 			ELOG("Game \(game.title) belongs to an unknown system \(game.systemIdentifier)")
 			return

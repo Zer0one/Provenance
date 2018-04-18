@@ -33,6 +33,8 @@
 
 #define FORCE_RICE_VIDEO 0
 
+#define RESIZE_TO_FULLSCREEN 0
+
 #import "MupenGameCore.h"
 #import "api/config.h"
 #import "api/m64p_common.h"
@@ -76,12 +78,16 @@ static void (*ptr_SetOSDCallback)(void (*inPV_OSD_Callback)(const char *_pText, 
 
 EXPORT static void PV_DrawOSD(const char *_pText, float _x, float _y)
 {
+#if DEBUG
 //	DLOG("%s", _pText);
+#endif
 }
 
 static void MupenDebugCallback(void *context, int level, const char *message)
 {
+#if DEBUG
     NSLog(@"Mupen (%d): %s", level, message);
+#endif
 }
 
 static void MupenFrameCallback(unsigned int FrameIndex) {
@@ -416,7 +422,14 @@ static void MupenSetAudioSpeed(int percent)
     // do we need this?
 }
 
-static void ConfigureCore() {
+static void ConfigureAll(NSString *romFolder) {
+	ConfigureCore(romFolder);
+	ConfigureVideoGeneral();
+	ConfigureGLideN64(romFolder);
+	ConfigureRICE();
+}
+
+static void ConfigureCore(NSString *romFolder) {
 	GET_CURRENT_AND_RETURN();
 
 	// TODO: Proper path
@@ -429,9 +442,9 @@ static void ConfigureCore() {
 	ConfigOpenSection("Core", &config);
 
 	// set SRAM path
-	ConfigSetParameter(config, "SaveSRAMPath", M64TYPE_STRING, [current.batterySavesPath UTF8String]);
+	ConfigSetParameter(config, "SaveSRAMPath", M64TYPE_STRING, [current.batterySavesPath fileSystemRepresentation]);
 	// set data path
-	ConfigSetParameter(config, "SharedDataPath", M64TYPE_STRING, dataPath);
+	ConfigSetParameter(config, "SharedDataPath", M64TYPE_STRING, romFolder.fileSystemRepresentation);
 
 	// Use Pure Interpreter if 0, Cached Interpreter if 1, or Dynamic Recompiler if 2 or more"
 	int emulator = 1;
@@ -468,7 +481,11 @@ static void ConfigureGLideN64(NSString *romFolder) {
 	ConfigOpenSection("Video-GLideN64", &gliden64);
 
 	// 0 = stretch, 1 = 4:3, 2 = 16:9, 3 = adjust
+#if RESIZE_TO_FULLSCREEN
+	int aspectRatio = 3;
+#else
 	int aspectRatio = 1;
+#endif
 	ConfigSetParameter(gliden64, "AspectRatio", M64TYPE_INT, &aspectRatio);
 
 	// Per-pixel lighting
@@ -476,25 +493,44 @@ static void ConfigureGLideN64(NSString *romFolder) {
 	ConfigSetParameter(gliden64, "EnableHWLighting", M64TYPE_BOOL, &enableHWLighting);
 
 	// HiRez & texture options
-	int txHiresEnable = 1;
 	//  txHiresEnable, "Use high-resolution texture packs if available."
+	int txHiresEnable = 1;
 	ConfigSetParameter(gliden64, "txHiresEnable", M64TYPE_BOOL, &txHiresEnable);
 
-	ConfigSetParameter(gliden64, "txPath", M64TYPE_STRING, [romFolder UTF8String]);
-	ConfigSetParameter(gliden64, "txCachePath", M64TYPE_STRING,[romFolder UTF8String]);
-	ConfigSetParameter(gliden64, "txDumpPath", M64TYPE_STRING,[romFolder UTF8String]);
+	ConfigSetParameter(gliden64, "txPath", M64TYPE_STRING, [romFolder fileSystemRepresentation]);
+	ConfigSetParameter(gliden64, "txCachePath", M64TYPE_STRING, [romFolder fileSystemRepresentation]);
+	ConfigSetParameter(gliden64, "txDumpPath", M64TYPE_STRING, [romFolder fileSystemRepresentation]);
+
+#if RESIZE_TO_FULLSCREEN
+	// "txFilterMode", "Texture filter (0=none, 1=Smooth filtering 1, 2=Smooth filtering 2, 3=Smooth filtering 3, 4=Smooth filtering 4, 5=Sharp filtering 1, 6=Sharp filtering 2)"
+	int txFilterMode = 6;
+	ConfigSetParameter(gliden64, "txFilterMode", M64TYPE_INT, &txFilterMode);
+
+	// "txEnhancementMode", config.textureFilter.txEnhancementMode, "Texture Enhancement (0=none, 1=store as is, 2=X2, 3=X2SAI, 4=HQ2X, 5=HQ2XS, 6=LQ2X, 7=LQ2XS, 8=HQ4X, 9=2xBRZ, 10=3xBRZ, 11=4xBRZ, 12=5xBRZ), 13=6xBRZ"
+	int txEnhancementMode = 8;
+	ConfigSetParameter(gliden64, "txEnhancementMode", M64TYPE_INT, &txEnhancementMode);
+
+	// "txCacheCompression", config.textureFilter.txCacheCompression, "Zip textures cache."
+	int txCacheCompression = 1;
+	ConfigSetParameter(gliden64, "txCacheCompression", M64TYPE_BOOL, &txCacheCompression);
+
+	// "txSaveCache", config.textureFilter.txSaveCache, "Save texture cache to hard disk."
+	int txSaveCache = 1;
+	ConfigSetParameter(gliden64, "txSaveCache", M64TYPE_BOOL, &txSaveCache);
+
+	// Warning, anything other than 0 crashes shader compilation
+	// "MultiSampling", config.video.multisampling, "Enable/Disable MultiSampling (0=off, 2,4,8,16=quality)"
+	int MultiSampling =0;
+	ConfigSetParameter(gliden64, "MultiSampling", M64TYPE_INT, &MultiSampling);
+#endif
 
 	/*
-	 "txFilterMode", "Texture filter (0=none, 1=Smooth filtering 1, 2=Smooth filtering 2, 3=Smooth filtering 3, 4=Smooth filtering 4, 5=Sharp filtering 1, 6=Sharp filtering 2)"
-	 "txEnhancementMode", config.textureFilter.txEnhancementMode, "Texture Enhancement (0=none, 1=store as is, 2=X2, 3=X2SAI, 4=HQ2X, 5=HQ2XS, 6=LQ2X, 7=LQ2XS, 8=HQ4X, 9=2xBRZ, 10=3xBRZ, 11=4xBRZ, 12=5xBRZ), 13=6xBRZ"
 	 "txDeposterize", config.textureFilter.txDeposterize, "Deposterize texture before enhancement."
 	 "txFilterIgnoreBG", config.textureFilter.txFilterIgnoreBG, "Don't filter background textures."
 	 "txCacheSize", config.textureFilter.txCacheSize/ gc_uMegabyte, "Size of filtered textures cache in megabytes."
 	 "txHresAltCRC", config.textureFilter.txHresAltCRC, "Use alternative method of paletted textures CRC calculation."
 	 "txDump", config.textureFilter.txDump, "Enable dump of loaded N64 textures."
-	 "txCacheCompression", config.textureFilter.txCacheCompression, "Zip textures cache."
 	 "txForce16bpp", config.textureFilter.txForce16bpp, "Force use 16bit texture formats for HD textures."
-	 "txSaveCache", config.textureFilter.txSaveCache, "Save texture cache to hard disk."
 	*/
 
 	// "txHiresFullAlphaChannel", "Allow to use alpha channel of high-res texture fully."
@@ -574,29 +610,38 @@ static void ConfigureRICE() {
 	ConfigSaveSection("Video-Rice");
 }
 
-- (BOOL)loadFileAtPath:(NSString *)path error:(NSError**)error {
-    NSBundle *coreBundle = [NSBundle mainBundle];
-    const char *dataPath;
+- (void)copyIniFiles:(NSString*)romFolder {
+	NSBundle *coreBundle = [NSBundle mainBundle];
 
-    // TODO: Proper path
-    NSString *configPath = self.saveStatesPath;
-    dataPath = [[coreBundle resourcePath] fileSystemRepresentation];
-    
-    [[NSFileManager defaultManager] createDirectoryAtPath:configPath withIntermediateDirectories:YES attributes:nil error:nil];
-    
-    NSString *batterySavesDirectory = self.batterySavesPath;
-    [[NSFileManager defaultManager] createDirectoryAtPath:batterySavesDirectory withIntermediateDirectories:YES attributes:nil error:NULL];
-    
-    // open core here
-    CoreStartup(FRONTEND_API_VERSION, [configPath fileSystemRepresentation], dataPath, (__bridge void *)self, MupenDebugCallback, (__bridge void *)self, MupenStateCallback);
+	// Copy default config files if they don't exist
+	NSArray<NSString*>* iniFiles = @[@"GLideN64.ini", @"GLideN64.custom.ini", @"RiceVideoLinux.ini", @"mupen64plus.ini"];
+	NSFileManager *fm = [NSFileManager defaultManager];
+	for (NSString *iniFile in iniFiles) {
+		NSString *destinationPath = [romFolder stringByAppendingPathComponent:iniFile];
 
-	NSString *romFolder = [path stringByDeletingLastPathComponent];
+		if (![fm fileExistsAtPath:destinationPath]) {
+			NSString *fileName = [iniFile stringByDeletingPathExtension];
+			NSString *extension = [iniFile pathExtension];
+			NSString *source = [coreBundle pathForResource:fileName
+													ofType:extension];
+			if (source == nil) {
+				ELOG(@"No resource path found for file %@", iniFile);
+				continue;
+			}
+			NSError *error;
+			BOOL success = [fm copyItemAtPath:source
+									   toPath:destinationPath
+										error:&error];
+			if (!success) {
+				ELOG(@"Failed to copy app bundle file %@\n%@", iniFile, error.localizedDescription);
+			} else {
+				ILOG(@"Copied %@ from app bundle to %@", iniFile, destinationPath);
+			}
+		}
+	}
+}
 
-	ConfigureCore();
-	ConfigureVideoGeneral();
-	ConfigureGLideN64(romFolder);
-	ConfigureRICE();
-
+-(void)createHiResFolder:(NSString*)romFolder {
 	// Create the directory if this option is enabled to make it easier for users to upload packs
 	BOOL hiResTextures = YES;
 	if (hiResTextures) {
@@ -614,6 +659,46 @@ static void ConfigureRICE() {
 			}
 		}
 	}
+}
+
+- (BOOL)loadFileAtPath:(NSString *)path error:(NSError**)error {
+    NSBundle *coreBundle = [NSBundle mainBundle];
+
+    NSString *batterySavesDirectory = self.batterySavesPath;
+    [[NSFileManager defaultManager] createDirectoryAtPath:batterySavesDirectory withIntermediateDirectories:YES attributes:nil error:NULL];
+
+	NSString *romFolder = [path stringByDeletingLastPathComponent];
+	NSString *configPath = [romFolder stringByAppendingPathComponent:@"/config/"];
+	NSString *dataPath = [romFolder stringByAppendingPathComponent:@"/data/"];
+
+	// Create config and data paths
+	NSFileManager *fileManager = [NSFileManager defaultManager];
+	for (NSString *path in @[configPath, dataPath]) {
+		if (![fileManager fileExistsAtPath:configPath]) {
+			NSError *error;
+			if(![fileManager createDirectoryAtPath:configPath
+					   withIntermediateDirectories:true
+										attributes:nil
+											 error:&error]) {
+				ELOG(@"Filed to create path. %@", error.localizedDescription);
+			}
+		}
+	}
+
+	// Create hires folder placement
+	[self createHiResFolder:romFolder];
+
+	// Copy default ini files to the config path
+	[self copyIniFiles:configPath];
+
+	// Setup configs
+	ConfigureAll(romFolder);
+
+	// open core here
+	CoreStartup(FRONTEND_API_VERSION, configPath.fileSystemRepresentation, dataPath.fileSystemRepresentation, (__bridge void *)self, MupenDebugCallback, (__bridge void *)self, MupenStateCallback);
+
+	// Setup configs
+	ConfigureAll(romFolder);
 
 	// Disable the built in speed limiter
 	CoreDoCommand(M64CMD_CORE_STATE_SET, M64CORE_SPEED_LIMITER, 0);
@@ -785,7 +870,18 @@ static void ConfigureRICE() {
         
         return NO;
     }
-    
+
+#if RESIZE_TO_FULLSCREEN
+	UIWindow *keyWindow = [[UIApplication sharedApplication] keyWindow];
+	if(keyWindow != nil) {
+		CGSize fullScreenSize = keyWindow.bounds.size;
+		[self tryToResizeVideoTo:fullScreenSize];
+	}
+#endif
+
+	// Setup configs
+	ConfigureAll(romFolder);
+
     return YES;
 }
 
@@ -1091,8 +1187,10 @@ static void ConfigureRICE() {
 
 - (void) tryToResizeVideoTo:(CGSize)size
 {
-    VidExt_SetVideoMode(size.width, size.height, 32, M64VIDEO_WINDOWED, 0);
-    ptr_PV_ForceUpdateWindowSize(size.width, size.height);
+    VidExt_SetVideoMode(size.width, size.height, 32, M64VIDEO_FULLSCREEN, 1);
+	if (ptr_PV_ForceUpdateWindowSize != nil) {
+		ptr_PV_ForceUpdateWindowSize(size.width, size.height);
+	}
 }
 
 - (BOOL)rendersToOpenGL
