@@ -32,7 +32,12 @@ class PVSaveStateCollectionViewCell: UICollectionViewCell {
 				if let image = saveState.image {
 					imageView.image = UIImage(contentsOfFile: image.url.path)
 				}
-				label.text = "\(PVSaveStateCollectionViewCell.dateFormatter.string(from: saveState.date)), \(PVSaveStateCollectionViewCell.timeFormatter.string(from: saveState.date))"
+				let timeText = "\(PVSaveStateCollectionViewCell.dateFormatter.string(from: saveState.date)), \(PVSaveStateCollectionViewCell.timeFormatter.string(from: saveState.date))"
+				if label.numberOfLines > 1 {
+					label.text = "\(saveState.game.title)\n\(timeText)"
+				} else {
+					label.text = timeText
+				}
 			}
 
 			setNeedsLayout()
@@ -42,7 +47,7 @@ class PVSaveStateCollectionViewCell: UICollectionViewCell {
 
 	override func prepareForReuse() {
 		super.prepareForReuse()
-		
+
 		imageView.image = nil
 		label.text = nil
 #if os(tvOS)
@@ -50,17 +55,17 @@ class PVSaveStateCollectionViewCell: UICollectionViewCell {
 		self.label.transform = .identity
 #endif
 	}
-	
+
 	override func layoutSubviews() {
 		super.layoutSubviews()
-		
+
 		if imageView.image == nil {
 			noScreenshotLabel.isHidden = false
 		} else {
 			noScreenshotLabel.isHidden = true
 		}
 	}
-	
+
 #if os(tvOS)
 	override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
 		coordinator.addCoordinatedAnimations({() -> Void in

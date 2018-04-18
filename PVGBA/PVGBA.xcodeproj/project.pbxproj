@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 46;
+	objectVersion = 48;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -468,8 +468,9 @@
 		1A9FBC121ABD0DA7004E778B /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
+				CLASSPREFIX = PV;
 				LastUpgradeCheck = 0930;
-				ORGANIZATIONNAME = JamSoft;
+				ORGANIZATIONNAME = Provenance;
 				TargetAttributes = {
 					B3C9D4B71DEA77DF0068D057 = {
 						CreatedOnToolsVersion = 8.1;
@@ -482,7 +483,7 @@
 				};
 			};
 			buildConfigurationList = 1A9FBC151ABD0DA7004E778B /* Build configuration list for PBXProject "PVGBA" */;
-			compatibilityVersion = "Xcode 3.2";
+			compatibilityVersion = "Xcode 8.0";
 			developmentRegion = English;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -642,6 +643,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = "\"$(SRCROOT)/GBA/GBACore\"";
 				IPHONEOS_DEPLOYMENT_TARGET = 8.2;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
@@ -694,6 +696,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = "\"$(SRCROOT)/GBA/GBACore\"";
 				IPHONEOS_DEPLOYMENT_TARGET = 8.2;
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -739,6 +742,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = "\"$(SRCROOT)/GBA/GBACore\"";
 				IPHONEOS_DEPLOYMENT_TARGET = 8.2;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
@@ -765,10 +769,6 @@
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "GBA/PVGBA-Prefix.pch";
 				GCC_WARN_INHIBIT_ALL_WARNINGS = YES;
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(SRCROOT)/**",
-				);
 				INFOPLIST_FILE = PVGBA/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				IPHONEOS_DEPLOYMENT_TARGET = 8.0;
@@ -780,7 +780,7 @@
 					"-DNO_PNG",
 					"-DTILED_RENDERING",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.jamsoftonline.PVGBA;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.provenance-emu.PVGBA";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -808,10 +808,6 @@
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "GBA/PVGBA-Prefix.pch";
 				GCC_WARN_INHIBIT_ALL_WARNINGS = YES;
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(SRCROOT)/**",
-				);
 				INFOPLIST_FILE = PVGBA/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				IPHONEOS_DEPLOYMENT_TARGET = 8.0;
@@ -823,7 +819,7 @@
 					"-DNO_PNG",
 					"-DTILED_RENDERING",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.jamsoftonline.PVGBA;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.provenance-emu.PVGBA";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -851,10 +847,6 @@
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "GBA/PVGBA-Prefix.pch";
 				GCC_WARN_INHIBIT_ALL_WARNINGS = YES;
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(SRCROOT)/**",
-				);
 				INFOPLIST_FILE = PVGBA/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				IPHONEOS_DEPLOYMENT_TARGET = 8.0;
@@ -866,7 +858,7 @@
 					"-DNO_PNG",
 					"-DTILED_RENDERING",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.jamsoftonline.PVGBA;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.provenance-emu.PVGBA";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -893,10 +885,6 @@
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "GBA/PVGBA-Prefix.pch";
 				GCC_WARN_INHIBIT_ALL_WARNINGS = YES;
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(SRCROOT)/**",
-				);
 				INFOPLIST_FILE = PVGBA/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
@@ -907,7 +895,7 @@
 					"-DNO_PNG",
 					"-DTILED_RENDERING",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.jamsoftonline.PVGBA;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.provenance-emu.PVGBA";
 				PRODUCT_NAME = PVGBA;
 				SDKROOT = appletvos;
 				SKIP_INSTALL = YES;
@@ -936,10 +924,6 @@
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "GBA/PVGBA-Prefix.pch";
 				GCC_WARN_INHIBIT_ALL_WARNINGS = YES;
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(SRCROOT)/**",
-				);
 				INFOPLIST_FILE = PVGBA/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
@@ -950,7 +934,7 @@
 					"-DNO_PNG",
 					"-DTILED_RENDERING",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.jamsoftonline.PVGBA;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.provenance-emu.PVGBA";
 				PRODUCT_NAME = PVGBA;
 				SDKROOT = appletvos;
 				SKIP_INSTALL = YES;
@@ -979,10 +963,6 @@
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "GBA/PVGBA-Prefix.pch";
 				GCC_WARN_INHIBIT_ALL_WARNINGS = YES;
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(SRCROOT)/**",
-				);
 				INFOPLIST_FILE = PVGBA/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
@@ -993,7 +973,7 @@
 					"-DNO_PNG",
 					"-DTILED_RENDERING",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.jamsoftonline.PVGBA;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.provenance-emu.PVGBA";
 				PRODUCT_NAME = PVGBA;
 				SDKROOT = appletvos;
 				SKIP_INSTALL = YES;

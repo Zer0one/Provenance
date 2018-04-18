@@ -253,40 +253,44 @@ public extension RomDatabase {
 public extension RomDatabase {
     @objc
     public func writeTransaction(_ block: () -> Void) throws {
-        try realm.write {
-            block()
-        }
+		if realm.isInWriteTransaction {
+			block()
+		} else {
+			try realm.write {
+				block()
+			}
+		}
     }
 
     @objc
     public func add(_ object: Object, update: Bool = false) throws {
-        try realm.write {
+		try writeTransaction {
             realm.add(object, update: update)
         }
     }
 
     public func add<T: Object>(objects: [T], update: Bool = false) throws {
-        try realm.write {
+		try writeTransaction {
             realm.add(objects, update: update)
         }
     }
 
     @objc
     public func deleteAll() throws {
-        try realm.write {
+		try writeTransaction {
             realm.deleteAll()
         }
     }
 
     public func deleteAll<T: Object>(_ type: T.Type) throws {
-        try realm.write {
-            realm.delete(realm.objects(type))
-        }
+		try writeTransaction {
+			realm.delete(realm.objects(type))
+		}
     }
 
     @objc
     public func delete(_ object: Object) throws {
-        try realm.write {
+		try writeTransaction {
             realm.delete(object)
         }
     }
@@ -341,8 +345,9 @@ public extension RomDatabase {
 		}
 		#endif
 
-		game.saveStates.forEach { try! $0.delete() }
-		game.recentPlays.forEach { try! $0.delete() }
+		game.saveStates.forEach { try? $0.delete() }
+		game.recentPlays.forEach { try? $0.delete() }
+		game.screenShots.forEach { try? $0.delete() }
 
 		deleteRelatedFilesGame(game)
 		try? game.delete()
@@ -350,6 +355,10 @@ public extension RomDatabase {
 
 	func deleteRelatedFilesGame(_ game: PVGame) {
 
+		game.relatedFiles.forEach {
+			try? FileManager.default.removeItem(at: $0.url )
+		}
+		
 		guard let system = game.system else {
 			ELOG("Game \(game.title) belongs to an unknown system \(game.systemIdentifier)")
 			return
@@ -382,7 +391,6 @@ public extension RomDatabase {
 	}
 }
 
-
 // MARK: - Spotlight
 #if os(iOS)
 import CoreSpotlight
@@ -410,7 +418,6 @@ extension RomDatabase {
 	}
 }
 #endif
-
 
 public extension RomDatabase {
     @objc
