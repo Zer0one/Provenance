@@ -125,10 +125,7 @@ class PVSaveStateInfoViewController: UIViewController, GameLaunchingViewControll
 		}
 
 		if let libVC = (self.presentingViewController ?? self) as? GameLaunchingViewController {
-			libVC.load(self.saveState!.game, sender: sender, core: nil)
-			DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: {
-				libVC.openSaveState(saveState)
-			})
+			libVC.load(self.saveState!.game, sender: sender, core: nil, saveState: saveState)
 		}
 	}
 
@@ -164,10 +161,19 @@ extension PVSaveStateInfoViewController {
 		let deleteAction = UIPreviewAction(title: "Delete", style: .destructive) { [unowned self] (action, viewController) in
 			let alert = UIAlertController(title: "Delete save state", message: "Are you sure?", preferredStyle: .alert)
 			alert.addAction(UIAlertAction(title: "Yes", style: .destructive, handler: {(_ action: UIAlertAction) -> Void in
-				try! self.saveState?.delete()
+				if let saveState = self.saveState {
+					do {
+						try PVSaveState.delete(saveState)
+					} catch {
+						self.presentError("Error deleting save state: " + error.localizedDescription)
+					}
+				} else {
+					ELOG("Save state var was nil, can't delete")
+				}
 			}))
 			alert.addAction(UIAlertAction(title: "No", style: .cancel, handler: nil))
-			self.present(alert, animated: true) {() -> Void in }
+
+			(UIApplication.shared.delegate?.window??.rootViewController ?? self).present(alert, animated: true)
 		}
 
 		return [playAction, deleteAction]

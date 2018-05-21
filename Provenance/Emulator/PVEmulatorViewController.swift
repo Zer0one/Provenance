@@ -14,14 +14,17 @@ import UIKit
 private weak var staticSelf: PVEmulatorViewController?
 
 func uncaughtExceptionHandler(exception: NSException?) {
-	do {
-		try staticSelf?.autoSaveState()
-	} catch {
-		ELOG("\(error.localizedDescription)")
-	}
+    if let staticSelf =  staticSelf, staticSelf.core.supportsSaveStates {
+        do {
+            try staticSelf.autoSaveState()
+        } catch {
+            ELOG("\(error.localizedDescription)")
+        }
+    }
 }
 
 public enum SaveStateError: Error {
+	case saveStatesUnsupportedByCore
 	case failedToSave(isAutosave: Bool)
 }
 
@@ -68,7 +71,7 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
     var BIOSPath = ""
     var menuButton: UIButton?
 
-    var glViewController: PVGLViewController!
+    var glViewController: PVGLViewController?
     var gameAudio: OEGameAudio!
     let controllerViewController: (UIViewController & StartSelectDelegate)?
     var fpsTimer: Timer?
@@ -179,7 +182,7 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 	private func initFPSLabel() {
 		fpsLabel = UILabel()
 		fpsLabel?.textColor = UIColor.yellow
-		fpsLabel?.text = "\(glViewController.framesPerSecond)"
+		fpsLabel?.text = "\(glViewController?.framesPerSecond ?? 0)"
 		fpsLabel?.translatesAutoresizingMaskIntoConstraints = false
 		fpsLabel?.textAlignment = .right
 		#if os(tvOS)
@@ -216,7 +219,7 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 		}
 	}
 
-	// TODO: This smethid is way too big, break it up
+	// TODO: This method is way too big, break it up
     override func viewDidLoad() {
         super.viewDidLoad()
         title = game.title
@@ -225,18 +228,48 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 		initNotifcationObservers()
 		initCore()
 
-		var romPath: URL? = game.file.url
+        NotificationCenter.default.addObserver(self, selector: #selector(PVEmulatorViewController.appWillEnterForeground(_:)), name: .UIApplicationWillEnterForeground, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(PVEmulatorViewController.appDidEnterBackground(_:)), name: .UIApplicationDidEnterBackground, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(PVEmulatorViewController.appWillResignActive(_:)), name: .UIApplicationWillResignActive, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(PVEmulatorViewController.appDidBecomeActive(_:)), name: .UIApplicationDidBecomeActive, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(PVEmulatorViewController.controllerDidConnect(_:)), name: .GCControllerDidConnect, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(PVEmulatorViewController.controllerDidDisconnect(_:)), name: .GCControllerDidDisconnect, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(PVEmulatorViewController.screenDidConnect(_:)), name: .UIScreenDidConnect, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(PVEmulatorViewController.screenDidDisconnect(_:)), name: .UIScreenDidDisconnect, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(PVEmulatorViewController.handleControllerManagerControllerReassigned(_:)), name: .PVControllerManagerControllerReassigned, object: nil)
 
+        core.audioDelegate = self
+        core.saveStatesPath = self.saveStatePath
+        core.batterySavesPath = batterySavesPath
+        core.biosPath = BIOSPath
+        core.controller1 = PVControllerManager.shared.player1
+        core.controller2 = PVControllerManager.shared.player2
+        core.controller3 = PVControllerManager.shared.player3
+        core.controller4 = PVControllerManager.shared.player4
+
+        let md5Hash: String = game.md5Hash
+        core.romMD5 = md5Hash
+        core.romSerial = game.romSerial
         glViewController = PVGLViewController(emulatorCore: core)
+
             // Load now. Moved here becauase Mednafen needed to know what kind of game it's working with in order
             // to provide the correct data for creating views.
-        let m3uFile: URL? = PVEmulatorConfiguration.m3uFile(forGame: game)
-        if m3uFile != nil {
-            romPath = m3uFile
-        }
+		let m3uFile: URL? = PVEmulatorConfiguration.m3uFile(forGame: game)
+		let romPathMaybe: URL? = m3uFile ?? game.file.url
+
+		guard let romPath = romPathMaybe else {
+			presentingViewController?.presentError("Game has a nil rom path.")
+			return
+		}
+
+//		guard FileManager.default.fileExists(atPath: romPath.absoluteString) else {
+//			ELOG("File doesn't exist at path \(romPath.absoluteString)")
+//			presentingViewController?.presentError("File doesn't exist at path \(romPath.absoluteString)")
+//			return
+//		}
 
         do {
-            try core.loadFile(atPath: romPath?.path)
+            try core.loadFile(atPath: romPath.path)
         } catch {
             let alert = UIAlertController(title: error.localizedDescription, message: (error as NSError).localizedRecoverySuggestion, preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .default, handler: {(_ action: UIAlertAction) -> Void in
@@ -297,41 +330,12 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 		convertOldSaveStatesToNewIfNeeded()
 
         core.startEmulation()
-		
+
         gameAudio = OEGameAudio(core: core)
         gameAudio?.volume = PVSettingsModel.sharedInstance().volume
         gameAudio?.outputDeviceID = 0
         gameAudio?.start()
-		if let latestAutoSave = game.saveStates.filter("isAutosave == true").sorted(byKeyPath: "date", ascending: false).first {
-            let shouldAskToLoadSaveState: Bool = PVSettingsModel.sharedInstance().askToAutoLoad
-            let shouldAutoLoadSaveState: Bool = PVSettingsModel.sharedInstance().autoLoadAutoSaves
-            if shouldAskToLoadSaveState {
-                core.setPauseEmulation(true)
-                let alert = UIAlertController(title: "Autosave file detected", message: "Would you like to load it?", preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: "Yes", style: .default, handler: {[weak self] (_ action: UIAlertAction) -> Void in
-                    self?.loadSaveState(latestAutoSave)
-                    self?.core.setPauseEmulation(false)
-                }))
-                alert.addAction(UIAlertAction(title: "Yes, and stop asking", style: .default, handler: {[weak self] (_ action: UIAlertAction) -> Void in
-					self?.loadSaveState(latestAutoSave)
-                    PVSettingsModel.sharedInstance().autoSave = true
-                    PVSettingsModel.sharedInstance().askToAutoLoad = false
-                }))
-                alert.addAction(UIAlertAction(title: "No", style: .default, handler: {[weak self] (_ action: UIAlertAction) -> Void in
-                    self?.core.setPauseEmulation(false)
-                }))
-                alert.addAction(UIAlertAction(title: "No, and stop asking", style: .default, handler: {(_ action: UIAlertAction) -> Void in
-                    self.core.setPauseEmulation(false)
-                    PVSettingsModel.sharedInstance().askToAutoLoad = false
-                    PVSettingsModel.sharedInstance().autoLoadAutoSaves = false
-                }))
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: {() -> Void in
-                    self.present(alert, animated: true) {() -> Void in }
-                })
-			} else if shouldAutoLoadSaveState {
-				loadSaveState(latestAutoSave)
-			}
-        }
+
         // stupid bug in tvOS 9.2
         // the controller paused handler (if implemented) seems to cause a 'back' navigation action
         // as well as calling the pause handler itself. Which breaks the menu functionality.
@@ -374,17 +378,10 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
     override open func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
 
-        #if os(iOS)
-        stopVolumeControl()
-        #endif
     }
 
     override open func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        #if os(iOS)
-            startVolumeControl()
-            UIApplication.shared.setStatusBarHidden(true, with: .fade)
-        #endif
     }
 
     @objc
@@ -424,24 +421,35 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
     }
 
 #endif
+
+#if os(iOS)
+    var safeAreaInsets: UIEdgeInsets {
+        if #available(iOS 11.0, tvOS 11.0, *) {
+            return view.safeAreaInsets
+        } else {
+            return UIEdgeInsets.zero
+        }
+    }
+#endif
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        var safeArea = UIEdgeInsets.zero
-        if #available(iOS 11.0, tvOS 11.0, *) {
-            safeArea = view.safeAreaInsets
-        }
-        if let menuButton = self.menuButton {
-            let height: CGFloat = 22
-            let width: CGFloat = 62
-            let hitHeight: CGFloat = height + 60
-            let hitWidth: CGFloat = width + 20
-            menuButton.imageView?.contentMode = .center
-            let frame = CGRect(x: (view.bounds.size.width - hitWidth) / 2, y: safeArea.top - (hitHeight / 2) + 20, width: hitWidth, height: hitHeight)
-            menuButton.frame = frame
-        }
-
+#if os(iOS)
+        layoutMenuButton()
+#endif
     }
 
+#if os(iOS)
+    func layoutMenuButton() {
+        if let menuButton = self.menuButton {
+            let height: CGFloat = 42
+            let width: CGFloat = 42
+            menuButton.imageView?.contentMode = .center
+            let frame = CGRect(x: safeAreaInsets.left + 10, y: safeAreaInsets.top + 5, width: width, height: height)
+            menuButton.frame = frame
+        }
+    }
+#endif
     func documentsPath() -> String? {
 #if os(tvOS)
         let paths = NSSearchPathForDirectoriesInDomains(.cachesDirectory, .userDomainMask, true)
@@ -475,7 +483,7 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
     }
 
     @objc func appWillResignActive(_ note: Notification?) {
-		if PVSettingsModel.sharedInstance().autoSave {
+		if PVSettingsModel.sharedInstance().autoSave, core.supportsSaveStates {
 			do {
 				try autoSaveState()
 			} catch {
@@ -590,14 +598,16 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
             self.perform(#selector(self.takeScreenshot), with: nil, afterDelay: 0.1)
         }))
 #endif
-        actionsheet.addAction(UIAlertAction(title: "Save States", style: .default, handler: {(_ action: UIAlertAction) -> Void in
-            self.perform(#selector(self.showSaveStateMenu), with: nil, afterDelay: 0.1)
-        }))
+		if core.supportsSaveStates {
+			actionsheet.addAction(UIAlertAction(title: "Save States", style: .default, handler: {(_ action: UIAlertAction) -> Void in
+				self.perform(#selector(self.showSaveStateMenu), with: nil, afterDelay: 0.1)
+			}))
+		}
         actionsheet.addAction(UIAlertAction(title: "Game Speed", style: .default, handler: {(_ action: UIAlertAction) -> Void in
             self.perform(#selector(self.showSpeedMenu), with: nil, afterDelay: 0.1)
         }))
         actionsheet.addAction(UIAlertAction(title: "Reset", style: .default, handler: {(_ action: UIAlertAction) -> Void in
-            if PVSettingsModel.sharedInstance().autoSave {
+            if PVSettingsModel.sharedInstance().autoSave, self.core.supportsSaveStates {
                 try? self.autoSaveState()
             }
             self.core.setPauseEmulation(false)
@@ -672,6 +682,7 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 			saveStatesViewController.saveStates = game.saveStates
 			saveStatesViewController.delegate = self
 			saveStatesViewController.screenshot = image
+			saveStatesViewController.coreID = core.coreIdentifier
 		}
 
 		saveStatesNavController.modalPresentationStyle = .overCurrentContext
@@ -756,11 +767,21 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 	}
 
 	func autoSaveState() throws {
-		let image = captureScreenshot()
-		try createNewSaveState(auto: true, screenshot: image)
-	}
+		guard core.supportsSaveStates else {
+			WLOG("Core \(core.description) doesn't support save states.")
+			throw SaveStateError.saveStatesUnsupportedByCore
+		}
+
+        let image = captureScreenshot()
+        try createNewSaveState(auto: true, screenshot: image)
+    }
 
 	func createNewSaveState(auto: Bool, screenshot: UIImage?) throws {
+		guard core.supportsSaveStates else {
+			WLOG("Core \(core.description) doesn't support save states.")
+			throw SaveStateError.saveStatesUnsupportedByCore
+		}
+
 		let saveFile = PVFile(withURL: URL(fileURLWithPath: saveStatePath).appendingPathComponent("\(game.md5Hash)|\(Date().timeIntervalSinceReferenceDate).svs"))
 
 		var imageFile: PVImageFile?
@@ -777,7 +798,9 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 			}
 		}
 
-		if self.core.saveStateToFile(atPath: saveFile.url.path) {
+		do {
+			try self.core.saveStateToFile(atPath: saveFile.url.path)
+
 			DLOG("Succeeded saving state, auto: \(auto)")
 			if let realm = try? Realm() {
 				guard let core = realm.object(ofType: PVCore.self, forPrimaryKey: core.coreIdentifier) else {
@@ -785,9 +808,9 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 					return
 				}
 
-				let saveState = PVSaveState(withGame: game, core: core, file: saveFile, image: imageFile, isAutosave: auto)
 				do {
 					try realm.write {
+						let saveState = PVSaveState(withGame: game, core: core, file: saveFile, image: imageFile, isAutosave: auto)
 						realm.add(saveState)
 					}
 				} catch let error {
@@ -805,12 +828,18 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 					}
 				}
 			}
-		} else {
-			throw SaveStateError.failedToSave(isAutosave: auto)
+		} catch {
+			throw error
+//			throw SaveStateError.failedToSave(isAutosave: auto)
 		}
 	}
 
 	func loadSaveState(_ state: PVSaveState) {
+		guard core.supportsSaveStates else {
+			WLOG("Core \(core.description) doesn't support save states.")
+			return
+		}
+
 		let realm = try! Realm()
 		guard let core = realm.object(ofType: PVCore.self, forPrimaryKey: core.coreIdentifier) else {
 			presentError("No core in database with id \(self.core.coreIdentifier ?? "null")")
@@ -821,7 +850,12 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 			try! realm.write {
 				state.lastOpened = Date()
 			}
-			self.core.loadStateFromFile(atPath: state.file.url.path)
+
+			do {
+				try self.core.loadStateFromFile(atPath: state.file.url.path)
+			} catch {
+				self.presentError("Failed to load save state. \(error.localizedDescription)")
+			}
 			self.core.setPauseEmulation(false)
 			self.isShowingMenu = false
 			self.enableContorllerInput(false)
@@ -887,9 +921,9 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 #endif
     @objc func showSpeedMenu() {
         let actionSheet = UIAlertController(title: "Game Speed", message: nil, preferredStyle: .actionSheet)
-        if traitCollection.userInterfaceIdiom == .pad {
+        if traitCollection.userInterfaceIdiom == .pad, let menuButton = menuButton {
             actionSheet.popoverPresentationController?.sourceView = menuButton
-            actionSheet.popoverPresentationController?.sourceRect = menuButton!.bounds
+            actionSheet.popoverPresentationController?.sourceRect = menuButton.bounds
         }
         let speeds = ["Slow", "Normal", "Fast"]
         speeds.enumerated().forEach { (idx, title) in
@@ -908,7 +942,7 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
     typealias QuitCompletion = () -> Void
 
     func quit(_ completion: QuitCompletion? = nil) {
-        if PVSettingsModel.sharedInstance().autoSave {
+        if PVSettingsModel.sharedInstance().autoSave, core.supportsSaveStates {
 			do {
 				try autoSaveState()
 			} catch {
@@ -1086,13 +1120,6 @@ extension PVEmulatorViewController {
         }
     }
 }
-
-// Inherits the default behaviour
-#if os(iOS)
-extension PVEmulatorViewController: VolumeController {
-
-}
-#endif
 
 // Extension to make gesture.allowedPressTypes and gesture.allowedTouchTypes sane.
 @available(iOS 9.0, *)

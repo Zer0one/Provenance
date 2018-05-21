@@ -19,7 +19,7 @@ import UIKit
 public protocol GameLaunchingViewController: class {
     var mustRefreshDataSource: Bool {get set}
     func canLoad(_ game: PVGame) throws
-	func load(_ game: PVGame, sender : Any?, core: PVCore?)
+	func load(_ game: PVGame, sender : Any?, core: PVCore?, saveState: PVSaveState?)
 	func openSaveState(_ saveState: PVSaveState)
     func updateRecentGames(_ game: PVGame)
     func register3DTouchShortcuts()
@@ -32,6 +32,60 @@ public enum GameLaunchingError: Error {
     case missingBIOSes([String])
 }
 
+#if os(iOS)
+class TextFieldEditBlocker : NSObject, UITextFieldDelegate {
+	var didSetConstraints = false
+
+	var switchControl : UISwitch? {
+		didSet {
+			didSetConstraints = false
+		}
+	}
+
+	// Prevent selection
+	func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool {
+		// Get rid of border
+		textField.superview?.backgroundColor = textField.backgroundColor
+
+		// Fix the switches frame from being below center
+		if #available(iOS 9.0, *) {
+			if !didSetConstraints, let switchControl = switchControl {
+				switchControl.constraints.forEach {
+					if $0.firstAttribute == .height {
+						switchControl.removeConstraint($0)
+					}
+				}
+
+				switchControl.heightAnchor.constraint(equalTo: textField.heightAnchor, constant: -4).isActive = true
+				let centerAnchor = switchControl.centerYAnchor.constraint(equalTo: textField.centerYAnchor, constant: 0)
+				centerAnchor.priority = .defaultHigh + 1
+				centerAnchor.isActive = true
+
+				textField.constraints.forEach {
+					if $0.firstAttribute == .height {
+						$0.constant += 20
+					}
+				}
+
+				didSetConstraints = true
+			}
+		}
+
+		return false
+	}
+
+	func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+		return false
+	}
+
+	func textFieldDidBeginEditing(_ textField: UITextField) {
+		textField.resignFirstResponder()
+	}
+}
+
+// Need a strong reference, so making static
+let textEditBlocker = TextFieldEditBlocker()
+#endif
 extension GameLaunchingViewController where Self : UIViewController {
 
     private func biosCheck(system: PVSystem) throws {
@@ -202,12 +256,18 @@ extension GameLaunchingViewController where Self : UIViewController {
 		present(coreChoiceAlert, animated: true)
 	}
 
-	func load(_ game: PVGame, sender : Any?, core: PVCore?) {
+	func load(_ game: PVGame, sender : Any?, core: PVCore?, saveState : PVSaveState? = nil) {
         guard !(presentedViewController is PVEmulatorViewController) else {
             let currentGameVC = presentedViewController as! PVEmulatorViewController
             displayAndLogError(withTitle: "Cannot open new game", message: "A game is already running the game \(currentGameVC.game.title).")
             return
         }
+
+		// Check if file exists
+		if game.file.missing {
+			displayAndLogError(withTitle: "Cannot open game", message: "The ROM file for this game cannot be found. Try re-importing the file for this game.\n\(game.file.fileName)")
+			return
+		}
 
         // Pre-flight
         guard let system = game.system else {
@@ -234,11 +294,20 @@ extension GameLaunchingViewController where Self : UIViewController {
 			var selectedCore : PVCore?
 
 			// If a core is passed in and it's valid for this system, use it.
-			if let core = core, cores.contains(core) {
+			if let saveState = saveState {
+				if cores.contains(saveState.core) {
+					selectedCore = saveState.core
+				} else {
+					// TODO: Present Error
+				}
+			}
+
+			// See if the user chose a core
+			if selectedCore == nil, let core = core, cores.contains(core) {
 				selectedCore = core
 			}
 
-			// Check if multiple cores can launch thi rom
+			// Check if multiple cores can launch this rom
 			if selectedCore == nil, cores.count > 1 {
 
 				let coresString : String = cores.map({return $0.projectName}).joined(separator: ", ")
@@ -255,7 +324,7 @@ extension GameLaunchingViewController where Self : UIViewController {
 				// User has no core preference, present dialogue to pick
 				presentCoreSelection(forGame: game, sender: sender)
 			} else {
-				presentEMU(withCore: selectedCore ?? cores.first!, forGame: game)
+				presentEMU(withCore: selectedCore ?? cores.first!, forGame: game, fromSaveState: saveState)
 			}
         } catch GameLaunchingError.missingBIOSes(let missingBIOSes) {
             // Create missing BIOS directory to help user out
@@ -275,7 +344,7 @@ extension GameLaunchingViewController where Self : UIViewController {
         }
     }
 
-	private func presentEMU(withCore core : PVCore, forGame game: PVGame) {
+	private func presentEMU(withCore core : PVCore, forGame game: PVGame, fromSaveState saveState: PVSaveState? = nil) {
 		guard let coreInstance = core.createInstance(forSystem: game.system) else {
 			displayAndLogError(withTitle: "Cannot open game", message: "Failed to create instance of core '\(core.projectName)'.")
 			ELOG("Failed to init core instance")
@@ -290,9 +359,28 @@ extension GameLaunchingViewController where Self : UIViewController {
 		emulatorViewController.saveStatePath = PVEmulatorConfiguration.saveStatePath(forGame: game).path
 		emulatorViewController.BIOSPath = PVEmulatorConfiguration.biosPath(forGame: game).path
 
+		// Check if Save State exists
+		if saveState == nil {
+			checkForSaveStateThenRun(withCore: core, forGame: game) { optionallyChosenSaveState in
+				self.presentEMUVC(emulatorViewController, withGame: game, loadingSaveState: optionallyChosenSaveState)
+			}
+		} else {
+			presentEMUVC(emulatorViewController, withGame: game, loadingSaveState: saveState)
+		}
+	}
+
+	// Used to just show and then optionally quickly load any passed in PVSaveStates
+	private func presentEMUVC(_ emulatorViewController : PVEmulatorViewController, withGame game: PVGame, loadingSaveState saveState: PVSaveState? = nil) {
 		// Present the emulator VC
 		emulatorViewController.modalTransitionStyle = .crossDissolve
-		self.present(emulatorViewController, animated: true) {() -> Void in }
+		self.present(emulatorViewController, animated: true) {() -> Void in
+			// Open the save state after a bootup delay if the user selected one
+			if let saveState = saveState {
+				DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: { [unowned self] in
+					self.openSaveState(saveState)
+				})
+			}
+		}
 
 		PVControllerManager.shared.iCadeController?.refreshListener()
 
@@ -306,6 +394,93 @@ extension GameLaunchingViewController where Self : UIViewController {
 		}
 
 		self.updateRecentGames(game)
+	}
+
+	private func checkForSaveStateThenRun(withCore core : PVCore, forGame game: PVGame, completion: @escaping (PVSaveState?) -> Void) {
+		if let latestSaveState = game.saveStates.filter("core.identifier == \"\(core.identifier)\"").sorted(byKeyPath: "date", ascending: false).first {
+			let shouldAskToLoadSaveState: Bool = PVSettingsModel.sharedInstance().askToAutoLoad
+			let shouldAutoLoadSaveState: Bool = PVSettingsModel.sharedInstance().autoLoadSaves
+
+			if shouldAutoLoadSaveState {
+				completion(latestSaveState)
+			} else if shouldAskToLoadSaveState {
+
+				// 1) Alert to ask about loading latest save state
+				let alert = UIAlertController(title: "Save State Detected", message: nil, preferredStyle: .alert)
+            #if os(iOS)
+				let switchControl = UISwitch()
+				switchControl.isOn = !PVSettingsModel.sharedInstance().askToAutoLoad
+				textEditBlocker.switchControl = switchControl
+
+                // Add a save this setting toggle
+                alert.addTextField { (textField) in
+                    textField.text = "Auto Load Saves"
+                    textField.backgroundColor = Theme.currentTheme.settingsCellBackground
+                    textField.textColor = Theme.currentTheme.settingsCellText
+                    textField.tintColor = Theme.currentTheme.settingsCellBackground
+                    textField.rightViewMode = .always
+                    textField.rightView = switchControl
+                    textField.borderStyle = .none
+                    textField.layer.borderColor = Theme.currentTheme.settingsCellBackground!.cgColor
+                    textField.delegate = textEditBlocker // Weak ref
+
+                    switchControl.translatesAutoresizingMaskIntoConstraints = false
+                    switchControl.transform = CGAffineTransform(scaleX: 0.75, y: 0.75)
+                }
+            #endif
+
+				// Restart
+				alert.addAction(UIAlertAction(title: "Restart", style: .default, handler: { (_ action: UIAlertAction) -> Void in
+            #if os(iOS)
+                    if switchControl.isOn {
+                        PVSettingsModel.sharedInstance().askToAutoLoad = false
+                        PVSettingsModel.sharedInstance().autoLoadSaves = false
+					}
+            #endif
+					completion(nil)
+				}))
+
+            #if os(tvOS)
+                // Restart Always…
+                alert.addAction(UIAlertAction(title: "Restart (Always)", style: .default, handler: {(_ action: UIAlertAction) -> Void in
+                    PVSettingsModel.sharedInstance().askToAutoLoad = false
+                    PVSettingsModel.sharedInstance().autoLoadSaves = false
+                    completion(nil)
+                }))
+            #endif
+
+				// Continue…
+				alert.addAction(UIAlertAction(title: "Continue…", style: .default, handler: { (_ action: UIAlertAction) -> Void in
+            #if os(iOS)
+                    if switchControl.isOn {
+                        PVSettingsModel.sharedInstance().askToAutoLoad = false
+                        PVSettingsModel.sharedInstance().autoLoadSaves = true
+                    }
+            #endif
+					completion(latestSaveState)
+				}))
+
+            #if os(tvOS)
+                // Continue Always…
+                alert.addAction(UIAlertAction(title: "Continue… (Always)", style: .default, handler: {(_ action: UIAlertAction) -> Void in
+                    PVSettingsModel.sharedInstance().askToAutoLoad = false
+                    PVSettingsModel.sharedInstance().autoLoadSaves = true
+                    completion(latestSaveState)
+                }))
+            #endif
+
+				// Present the alert
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: {() -> Void in
+					self.present(alert, animated: true) {() -> Void in }
+				})
+
+			} else {
+				// Asking is turned off, either load the save state or don't based on the 'autoLoadSaves' setting
+				completion(shouldAutoLoadSaveState ? latestSaveState : nil)
+			}
+		} else {
+			completion(nil)
+		}
 	}
 
     func doLoad(_ game: PVGame) throws {
@@ -351,6 +526,7 @@ extension GameLaunchingViewController where Self : UIViewController {
                 ELOG("Failed to update Recent Game entry. \(error.localizedDescription)")
             }
         } else {
+			// TODO: Add PVCore
             let newRecent = PVRecentGame(withGame: game)
             do {
                 try database.add(newRecent, update: false)
@@ -374,7 +550,12 @@ extension GameLaunchingViewController where Self : UIViewController {
 			}
 
 			gameVC.core.setPauseEmulation(true)
-			gameVC.core.loadStateFromFile(atPath: saveState.file.url.path)
+			do {
+				try gameVC.core.loadStateFromFile(atPath: saveState.file.url.path)
+			} catch {
+				let reason = (error as NSError).localizedFailureReason
+				presentError("Failed to load save state: \(error.localizedDescription) \(reason ?? "")")
+			}
 			gameVC.core.setPauseEmulation(false)
 		} else {
 			presentWarning("No core loaded")
