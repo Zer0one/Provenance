@@ -71,7 +71,7 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
     var BIOSPath = ""
     var menuButton: UIButton?
 
-    var glViewController: PVGLViewController?
+	private(set) var glViewController: PVGLViewController?
     var gameAudio: OEGameAudio!
     let controllerViewController: (UIViewController & StartSelectDelegate)?
     var fpsTimer: Timer?
@@ -93,7 +93,7 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 
 		staticSelf = self
 
-        if PVSettingsModel.sharedInstance().autoSave {
+        if PVSettingsModel.shared.autoSave {
             NSSetUncaughtExceptionHandler(uncaughtExceptionHandler)
         } else {
             NSSetUncaughtExceptionHandler(nil)
@@ -121,6 +121,7 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
     GCController.controllers().forEach { $0.controllerPausedHandler = nil }
 #endif
         updatePlayedDuration()
+		destroyAutosaveTimer()
     }
 
 	private func initNotifcationObservers() {
@@ -373,16 +374,44 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
         //Ignore Smart Invert
         self.view.ignoresInvertColors = true
         #endif
+
+		if PVSettingsModel.shared.timedAutoSaves {
+			createAutosaveTimer()
+		}
     }
 
     override open func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-
+		destroyAutosaveTimer()
     }
 
     override open func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
     }
+
+	var autosaveTimer : Timer?
+	func destroyAutosaveTimer() {
+		autosaveTimer?.invalidate()
+		autosaveTimer = nil
+	}
+	func createAutosaveTimer() {
+		autosaveTimer?.invalidate()
+		if #available(iOS 10.0, tvOS 10.0, *) {
+			let interval = PVSettingsModel.shared.timedAutoSaveInterval
+			autosaveTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true, block: { (timer) in
+				DispatchQueue.main.async {
+					let image = self.captureScreenshot()
+					do {
+						try self.createNewSaveState(auto: true, screenshot: image)
+					} catch {
+						ELOG("Autosave timer failed to make save state: \(error.localizedDescription)")
+					}
+				}
+			})
+		} else {
+			// Fallback on earlier versions
+		}
+	}
 
     @objc
     public func updatePlayedDuration() {
@@ -396,7 +425,7 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
         do {
             try RomDatabase.sharedInstance.writeTransaction {
                 game.timeSpentInGame = totalTimeSpent
-                game.lastPlayed = Date()
+//                game.lastPlayed = Date()
             }
         } catch {
             presentError("\(error.localizedDescription)")
@@ -475,7 +504,7 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
     #endif
 
     @objc func appWillEnterForeground(_ note: Notification?) {
-        updatePlayedDuration()
+        updateLastPlayedTime()
     }
 
     @objc func appDidEnterBackground(_ note: Notification?) {
@@ -772,6 +801,17 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 			throw SaveStateError.saveStatesUnsupportedByCore
 		}
 
+		let minimumPlayTimeToMakeAutosave : Double = 10
+		if let lastPlayed = game.lastPlayed, (lastPlayed.timeIntervalSinceNow * -1)  < minimumPlayTimeToMakeAutosave {
+			ILOG("Haven't been playing game long enough to make an autosave")
+			return
+		}
+
+		guard game.lastAutosaveAge == nil || game.lastAutosaveAge! > minutes(1) else {
+			ILOG("Last autosave is too new to make new one")
+			return
+		}
+
         let image = captureScreenshot()
         try createNewSaveState(auto: true, screenshot: image)
     }
@@ -819,7 +859,7 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 
 				// Delete the oldest auto-saves over 5 count
 				try? realm.write {
-					let autoSaves = game.saveStates.filter({ $0.isAutosave == true  }).sorted(by: {$0.date > $1.date})
+					let autoSaves = game.autoSaves
 					if autoSaves.count > 5 {
 						autoSaves.suffix(from: 5).forEach {
 							DLOG("Deleting old auto save of \($0.game.title) dated: \($0.date.description)")

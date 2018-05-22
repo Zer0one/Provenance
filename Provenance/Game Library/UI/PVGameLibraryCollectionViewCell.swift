@@ -7,6 +7,7 @@
 
 // import RealmSwift
 import CoreGraphics
+import AVFoundation
 
 private let LabelHeight: CGFloat = 44.0
 
@@ -55,26 +56,121 @@ extension CGRect {
 
 }
 
+extension CGSize {
+	enum Orientation {
+		case landscape
+		case portrait
+		case square
+	}
+
+	var orientation : Orientation {
+		if width > height {
+			return .landscape
+		} else if height > width {
+			return .portrait
+		} else {
+			return .square
+		}
+	}
+
+	var aspectRatio : CGFloat {
+		switch orientation {
+		case .portrait:
+			return width / height
+		case .landscape:
+			return height / width
+		case .square:
+			return 1.0
+		}
+	}
+
+	var longestLength : CGFloat {
+		return max(width, height)
+	}
+
+	var shortestLength : CGFloat {
+		return min(width, height)
+	}
+
+	var debugDescription : String {
+		return "(width:\(width) height:\(height))"
+	}
+//	func scaleAspectToFitInside(_ boundingSize : CGSize) -> CGSize {
+//		let mW = boundingSize.width / self.width;
+//		let mH = boundingSize.height / self.height;
+//
+//		var newSize = boundingSize
+//		if( mH < mW ) {
+//			newSize.width = boundingSize.height / self.height * self.width;
+//		}
+//		else if( mW < mH ) {
+//			newSize.height = boundingSize.width / self.width * self.height;
+//		}
+//
+//		return boundingSize;
+//	}
+//	func scaleAspectToFitInside(_ size : CGSize) -> CGSize {
+//
+//		let newSize : CGSize
+//		switch (orientation, size.orientation) {
+//		case (.landscape, .landscape):
+//			newSize = CGSize(width: size.width, height: size.height * aspectRatio)
+//		case (.landscape, .portrait):
+//			newSize = CGSize(width: size.width, height: size.height * aspectRatio)
+//		case (.portrait, .portrait):
+//			newSize = CGSize(width: size.width * aspectRatio, height: size.height)
+//
+//		case (.square,.square):
+//			let minSide = size.shortestLength
+//			newSize = CGSize(width: minSide, height: minSide)
+//		}
+//
+//		return newSize
+//	}
+}
+
+extension CGRect {
+	func scaleAspectToFitInside(_ rect : CGRect) -> CGRect {
+//		let newSize = size.scaleAspectToFitInside(rect.size)
+//		var newRect = CGRect(origin: .zero, size: newSize)
+//		if newSize.width < rect.width {
+//			newRect.origin.x = (rect.width - newSize.width) / 2.0
+//		}
+//
+//		if newSize.height < rect.height {
+//			newRect.origin.y = (rect.height - newSize.height) / 2.0
+//		}
+//
+//		return newRect
+		return AVMakeRect(aspectRatio: self.size, insideRect: rect)
+	}
+
+	var debugDescription : String {
+		return "(x:\(origin.x) y:\(origin.y) width:\(size.width) height:\(size.height))"
+	}
+}
+
 extension UIImageView {
 	// What is the bounds of the image when it's scaled to fit
 	var contentClippingRect: CGRect {
-		guard let image = image else { return bounds }
-		guard contentMode == .scaleAspectFit else { return bounds }
+		guard let image = image else {
+			VLOG("No image")
+			return bounds
+		}
+		guard contentMode == .scaleAspectFit else {
+			VLOG("Unsupported content mode")
+			return bounds
+		}
 		let imageSize = image.size
 		guard imageSize.width > 0 && imageSize.height > 0 else { return bounds }
 
-		let scale: CGFloat
-		if imageSize.width > imageSize.height {
-			scale = bounds.width / imageSize.width
-		} else {
-			scale = bounds.height / imageSize.height
-		}
+		var clippingRect = CGRect(origin: .zero, size: imageSize).scaleAspectToFitInside(bounds)
+		clippingRect.origin.x = (bounds.width - clippingRect.width) / 2.0
+		clippingRect.origin.y = (bounds.height - clippingRect.height) / 2.0
 
-		let size = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
-		let x = (bounds.width - size.width) / 2.0
-		let y = (bounds.height - size.height) / 2.0
+//		VLOG("imageSize:\(imageSize.debugDescription) bounds:\(bounds.debugDescription) clippingRect:\(clippingRect.debugDescription) ratio:\(imageSize.aspectRatio)")
 
-		return CGRect(x: x, y: y, width: size.width, height: size.height)
+		return clippingRect
 	}
 }
 
@@ -211,6 +307,22 @@ extension UIImage {
 
         return image
     }
+
+	func imageWithBorder(width: CGFloat, color: UIColor) -> UIImage? {
+		let imageView = UIImageView(frame: CGRect(origin: CGPoint(x: 0, y: 0), size: size))
+		imageView.contentMode = .center
+		imageView.image = self
+		//		imageView.layer.cornerRadius = square.width/2
+		imageView.layer.masksToBounds = true
+		imageView.layer.borderWidth = width
+		imageView.layer.borderColor = color.cgColor
+		UIGraphicsBeginImageContextWithOptions(imageView.bounds.size, false, scale)
+		guard let context = UIGraphicsGetCurrentContext() else { return nil }
+		imageView.layer.render(in: context)
+		let result = UIGraphicsGetImageFromCurrentImageContext()
+		UIGraphicsEndImageContext()
+		return result
+	}
 }
 
 class PVGameLibraryCollectionViewCell: UICollectionViewCell {
@@ -228,6 +340,7 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 			imageView.ignoresInvertColors = true
 			#else
 			imageView.adjustsImageWhenAncestorFocused = true
+			imageView.clipsToBounds = false
 			#endif
 		}
 	}
@@ -308,6 +421,7 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 	}
 	@IBOutlet weak var topRightBadgeTopConstraint: NSLayoutConstraint?
 	@IBOutlet weak var topRightBadgeTrailingConstraint: NSLayoutConstraint?
+	@IBOutlet weak var topRightBadgeWidthConstraint: NSLayoutConstraint?
 	@IBOutlet weak var discCountTrailingConstraint: NSLayoutConstraint?
 	@IBOutlet weak var missingFileWidthContraint: NSLayoutConstraint?
 	@IBOutlet weak var missingFileHeightContraint: NSLayoutConstraint?
@@ -322,6 +436,13 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 		}
 		return size
     }
+
+	#if os(tvOS)
+	override var canBecomeFocused: Bool {
+		return true
+	}
+
+	#endif
 
     var token: NotificationToken?
     var game: PVGame? {
@@ -380,6 +501,7 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
                 artworkText = game.title
             }
 			imageView.image = image(withText: artworkText) //?.withRenderingMode(.alwaysTemplate)
+			updateImageConstraints()
 			setNeedsLayout()
         } else {
             var maybeKey: String? = !artworkURL.isEmpty ? artworkURL : nil
@@ -388,29 +510,32 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
             }
             if let key = maybeKey {
                 operation = PVMediaCache.shareInstance().image(forKey: key, completion: {(_ image: UIImage?) -> Void in
-                    var artworkText: String
-                    if PVSettingsModel.shared.showGameTitles {
-                        artworkText = placeholderImageText
-                    } else {
-                        artworkText = game.title
-                    }
-                    let artwork: UIImage? = image ?? self.image(withText: artworkText)
-                    self.imageView.image = artwork //?.withRenderingMode(.alwaysTemplate)
-#if os(tvOS)
-                    let width: CGFloat = self.frame.width
-                    let boxartSize = CGSize(width: width, height: width / game.boxartAspectRatio.rawValue)
-                    self.imageView.frame = CGRect(x: 0, y: 0, width: width, height: boxartSize.height)
-#else
-					if #available(iOS 9.0, tvOS 9.0, *) {
-					} else {
-						var imageHeight: CGFloat = self.frame.size.height
+					DispatchQueue.main.async {
+						var artworkText: String
 						if PVSettingsModel.shared.showGameTitles {
-							imageHeight -= 44
+							artworkText = placeholderImageText
+						} else {
+							artworkText = game.title
 						}
-						self.imageView.frame = CGRect(x: 0, y: 0, width: self.frame.size.width, height: imageHeight)
+						let artwork: UIImage? = image ?? self.image(withText: artworkText)
+						self.imageView.image = artwork //?.imageWithBorder(width: 1, color: UIColor.red) //?.withRenderingMode(.alwaysTemplate)
+						#if os(tvOS)
+						let width: CGFloat = self.frame.width
+						let boxartSize = CGSize(width: width, height: width / game.boxartAspectRatio.rawValue)
+						self.imageView.frame = CGRect(x: 0, y: 0, width: width, height: boxartSize.height)
+						#else
+						if #available(iOS 9.0, tvOS 9.0, *) {
+						} else {
+							var imageHeight: CGFloat = self.frame.size.height
+							if PVSettingsModel.shared.showGameTitles {
+								imageHeight -= 44
+							}
+							self.imageView.frame = CGRect(x: 0, y: 0, width: self.frame.size.width, height: imageHeight)
+						}
+						#endif
+						self.updateImageConstraints()
+						self.setNeedsLayout()
 					}
-#endif
-                    self.setNeedsLayout()
                 })
             }
         }
@@ -429,6 +554,11 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 	}
 
 	private func setupBadges() {
+		if !PVSettingsModel.shared.showGameBadges {
+			self.topRightCornerBadgeView?.isHidden = true
+			return
+		}
+
 		guard let game = game else {
 			self.topRightCornerBadgeView?.isHidden = true
 			self.discCountContainerView?.isHidden = true
@@ -440,7 +570,7 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 		self.discCountLabel?.text = "\(game.discCount)"
 		self.discCountLabel?.textColor = UIColor.white
 
-		let hasPlayed = game.playCount > 1
+		let hasPlayed = game.playCount > 0
 		let favorite = game.isFavorite
 		self.topRightCornerBadgeView?.glyph = favorite ? "★" : ""
 
@@ -529,6 +659,12 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 		self.contentView.translatesAutoresizingMaskIntoConstraints = true
 
 		titleLabel.isHidden = !PVSettingsModel.shared.showGameTitles
+
+//		contentView.layer.borderWidth = 1.0
+//		contentView.layer.borderColor = UIColor.white.cgColor
+//
+//		imageView.layer.borderWidth = 1.0
+//		imageView.layer.borderColor = UIColor.green.cgColor
 	}
 
     func image(withText text: String) -> UIImage? {
@@ -597,20 +733,7 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 		}
 #endif
 
-		let imageContentFrame = imageView.contentClippingRect
-		let imageViewContentSize = imageContentFrame.size
-		let imageWidth = imageViewContentSize.width
-		let topImageGap = imageContentFrame.origin.y
-		let rightImageGap = imageView.bounds.width - imageWidth
-		let trailingConstant = (rightImageGap / 2.0) * -1.0
-		topRightBadgeTrailingConstraint?.constant = trailingConstant
-		topRightBadgeTopConstraint?.constant = topImageGap
-		discCountTrailingConstraint?.constant = trailingConstant
-
-		missingFileWidthContraint?.constant = imageViewContentSize.width
-		missingFileHeightContraint?.constant = imageViewContentSize.height
-
-		roundDiscCountCorners()
+		updateImageConstraints()
 
 		#if os(iOS)
 		if !PVSettingsModel.shared.showGameTitles, let titleLabelHeightConstraint = titleLabelHeightConstraint {
@@ -620,6 +743,25 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 		}
 		#endif
     }
+
+	func updateImageConstraints() {
+		let imageContentFrame = imageView.contentClippingRect
+
+		let topConstant = imageContentFrame.origin.y
+		let trailingConstant = imageContentFrame.origin.x * -1.0
+//		print("system: \(game?.system.shortName ?? "nil") : trailingConstant:\(trailingConstant) topConstant:\(topConstant)")
+
+		topRightBadgeWidthConstraint?.constant = imageContentFrame.size.longestLength * 0.25
+		topRightBadgeTrailingConstraint?.constant = trailingConstant
+		topRightBadgeTopConstraint?.constant = topConstant
+
+		discCountTrailingConstraint?.constant = trailingConstant
+
+		missingFileWidthContraint?.constant = imageContentFrame.width
+		missingFileHeightContraint?.constant = imageContentFrame.height
+
+		roundDiscCountCorners()
+	}
 
 	func roundDiscCountCorners() {
 		let maskLayer = CAShapeLayer()

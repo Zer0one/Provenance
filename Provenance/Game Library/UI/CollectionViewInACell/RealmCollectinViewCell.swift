@@ -14,9 +14,19 @@ protocol RealmCollectinViewCellDelegate : class {
 
 protocol RealmCollectionViewCellBase {
 	var minimumInteritemSpacing : CGFloat { get}
+//	var additionalFilter : Bool { get }
+//	func isIncluded(_ object : Object) -> Bool
 }
 
 extension RealmCollectionViewCellBase {
+//	func isIncluded(_ object : Object) -> Bool {
+//		return true
+//	}
+
+//	var additionalFilter : Bool {
+//		return false
+//	}
+
 	var minimumInteritemSpacing : CGFloat {
 		#if os(tvOS)
 		return 50
@@ -29,6 +39,14 @@ extension RealmCollectionViewCellBase {
 public let PageIndicatorHeight : CGFloat = 2.5
 
 class RealmCollectinViewCell<CellClass:UICollectionViewCell, SelectionObject:Object> : UICollectionViewCell, RealmCollectionViewCellBase, UICollectionViewDelegateFlowLayout, UIScrollViewDelegate, UICollectionViewDataSource {
+	var additionalFilter : Bool {
+		return false
+	}
+
+	func isIncluded(_ object : SelectionObject) -> Bool {
+		return true
+	}
+
 	var queryUpdateToken: NotificationToken? {
 		willSet {
 			queryUpdateToken?.invalidate()
@@ -38,13 +56,64 @@ class RealmCollectinViewCell<CellClass:UICollectionViewCell, SelectionObject:Obj
 	weak var selectionDelegate : RealmCollectinViewCellDelegate?
 
 	let query: Results<SelectionObject>
+	var count : Int {
+		if additionalFilter {
+			return query.filter({return self.isIncluded($0)}).count
+		} else {
+			return query.count
+		}
+	}
+
+	func itemForIndex(_ index : Int) -> SelectionObject {
+		if additionalFilter {
+			return query.filter({return self.isIncluded($0)})[index]
+		} else {
+			return query[index]
+		}
+	}
+
 	let cellId : String
 
 	var numberOfRows = 1
 
 	var subCellSize : CGSize {
+		#if os(tvOS)
+		return CGSize(width: 300, height: 300)
+		#else
 		return CGSize(width: 124, height: 144)
+		#endif
 	}
+
+	override var preferredFocusedView: UIView? {
+		return internalCollectionView
+	}
+
+//	func collectionView(collectionView: UICollectionView, shouldUpdateFocusInContext context: UICollectionViewFocusUpdateContext) -> Bool {
+//		guard let indexPaths = internalCollectionView.indexPathsForSelectedItems() else { return true }
+//		return indexPaths.isEmpty
+//	}
+//
+//	override var preferredFocusEnvironments: [UIFocusEnvironment] {
+//		if let p = internalCollectionView.preferredFocusedView {
+//			return [p]
+//		} else {
+//			return [internalCollectionView]
+//		}
+//	}
+
+//	override func shouldUpdateFocus(in context: UIFocusUpdateContext) -> Bool {
+//		if context.previouslyFocusedView == internalCollectionView && (context.focusHeading == .left || context.focusHeading == .right) {
+//			return true
+//		} else if context.focusHeading == .up || context.focusHeading == .down {
+//			return true
+//		} else {
+//			return false
+//		}
+//	}
+
+//	func collectionView(_ collectionView: UICollectionView, canFocusItemAt indexPath: IndexPath) -> Bool {
+//		return indexPath.row < numberOfRows
+//	}
 
 	lazy var layout : CenterViewFlowLayout = {
 		let layout = CenterViewFlowLayout()
@@ -68,6 +137,11 @@ class RealmCollectinViewCell<CellClass:UICollectionViewCell, SelectionObject:Obj
 		collectionView.translatesAutoresizingMaskIntoConstraints = false
 		collectionView.showsHorizontalScrollIndicator = false
 		collectionView.showsVerticalScrollIndicator = false
+
+		if #available(iOS 9.0, tvOS 9.0, *) {
+//			collectionView.remembersLastFocusedIndexPath = true
+		}
+
 		#if os(iOS)
 		collectionView.isPagingEnabled = true
 		#endif
@@ -88,6 +162,15 @@ class RealmCollectinViewCell<CellClass:UICollectionViewCell, SelectionObject:Obj
 		setupToken()
 	}
 
+	@objc
+	func rotated() {
+		refreshCollectionView()
+	}
+
+	deinit {
+		NotificationCenter.default.removeObserver(self)
+	}
+
 	func setupViews() {
 		#if os(iOS)
 		backgroundColor = Theme.currentTheme.gameLibraryBackground
@@ -100,6 +183,10 @@ class RealmCollectinViewCell<CellClass:UICollectionViewCell, SelectionObject:Obj
 
 		registerSubCellClass()
 		internalCollectionView.frame = self.bounds
+
+		#if os(iOS)
+		NotificationCenter.default.addObserver(self, selector: #selector(RealmCollectinViewCell.rotated), name: NSNotification.Name.UIDeviceOrientationDidChange, object: nil)
+		#endif
 
 		if #available(iOS 9.0, tvOS 9.0, *) {
 			let margins = self.layoutMarginsGuide
@@ -144,6 +231,7 @@ class RealmCollectinViewCell<CellClass:UICollectionViewCell, SelectionObject:Obj
 	override func layoutMarginsDidChange() {
 		super.layoutMarginsDidChange()
 		internalCollectionView.flashScrollIndicators()
+		self.pageIndicator.pageCount = self.layout.numberOfPages
 	}
 
 	override func prepareForReuse() {
@@ -188,8 +276,8 @@ class RealmCollectinViewCell<CellClass:UICollectionViewCell, SelectionObject:Obj
 
 	func refreshCollectionView() {
 		self.internalCollectionView.invalidateIntrinsicContentSize()
-		self.internalCollectionView.reloadData()
 		self.internalCollectionView.collectionViewLayout.invalidateLayout()
+		self.internalCollectionView.reloadData()
 		self.pageIndicator.pageCount = self.layout.numberOfPages
 	}
 
@@ -208,17 +296,17 @@ class RealmCollectinViewCell<CellClass:UICollectionViewCell, SelectionObject:Obj
 		//		})
 	}
 
-	func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-		let spacing : CGFloat = numberOfRows > 1 ? minimumInteritemSpacing + PageIndicatorHeight : PageIndicatorHeight
-		let height = max(0, (collectionView.frame.size.height / CGFloat(numberOfRows)) - spacing)
-
-		let viewWidth = internalCollectionView.bounds.size.width
-
-		let itemsPerRow :CGFloat = viewWidth > 800 ? 6 : 3
-		let width :CGFloat = max(0, (viewWidth / itemsPerRow) - (minimumInteritemSpacing * itemsPerRow))
-
-		return CGSize(width: width, height: height)
-	}
+//	func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
+//		let spacing : CGFloat = numberOfRows > 1 ? minimumInteritemSpacing + PageIndicatorHeight : PageIndicatorHeight
+//		let height = max(0, (collectionView.frame.size.height / CGFloat(numberOfRows)) - spacing)
+//
+//		let viewWidth = internalCollectionView.bounds.size.width
+//
+//		let itemsPerRow :CGFloat = viewWidth > 800 ? 6 : 3
+//		let width :CGFloat = max(0, (viewWidth / itemsPerRow) - (minimumInteritemSpacing * itemsPerRow))
+//
+//		return CGSize(width: width, height: height)
+//	}
 
 	/// whether or not dragging has ended
 	fileprivate var endDragging = false
@@ -236,14 +324,18 @@ class RealmCollectinViewCell<CellClass:UICollectionViewCell, SelectionObject:Obj
 	}
 
 	func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-		let count = query.count
 		return count
 	}
 
 	// MARK: - UICollectionViewDelegate
 	func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-		let selectedObject = query[indexPath.row]
+		let selectedObject = itemForIndex(indexPath.row)
 		selectionDelegate?.didSelectObject(selectedObject, indexPath: indexPath)
+	}
+
+	override func didTransition(from oldLayout: UICollectionViewLayout, to newLayout: UICollectionViewLayout) {
+		super.didTransition(from: oldLayout, to: newLayout)
+		pageIndicator.pageCount = layout.numberOfPages
 	}
 
 	// MARK: - UICollectionViewDataSource
@@ -252,10 +344,10 @@ class RealmCollectinViewCell<CellClass:UICollectionViewCell, SelectionObject:Obj
 			fatalError("Couldn't create cell of type ...")
 		}
 
-		if indexPath.row < query.count {
-			let objectForRow = query[indexPath.row]
+//		if indexPath.row < count {
+			let objectForRow = itemForIndex(indexPath.row)
 			setCellObject(objectForRow, cell: cell)
-		}
+//		}
 
 		return cell
 	}
@@ -264,6 +356,7 @@ class RealmCollectinViewCell<CellClass:UICollectionViewCell, SelectionObject:Obj
 		//
 		fatalError("Override me")
 	}
+
 //}
 //
 //
@@ -332,11 +425,15 @@ class RecentlyPlayedCollectionCell: RealmCollectinViewCell<PVGameLibraryCollecti
 
 	override func registerSubCellClass() {
 		// TODO: Use nib for cell once we drop iOS 8 and can use layouts
+		#if os(iOS)
 		if #available(iOS 9.0, tvOS 9.0, *) {
 			internalCollectionView.register(UINib(nibName: "PVGameLibraryCollectionViewCell", bundle: nil), forCellWithReuseIdentifier: PVGameLibraryCollectionViewCellIdentifier)
 		} else {
 			internalCollectionView.register(PVGameLibraryCollectionViewCell.self, forCellWithReuseIdentifier: PVGameLibraryCollectionViewCellIdentifier)
 		}
+		#else
+		internalCollectionView.register(PVGameLibraryCollectionViewCell.self, forCellWithReuseIdentifier: PVGameLibraryCollectionViewCellIdentifier)
+		#endif
 	}
 
 	required init?(coder aDecoder: NSCoder) {
@@ -359,11 +456,15 @@ class FavoritesPlayedCollectionCell: RealmCollectinViewCell<PVGameLibraryCollect
 
 	override func registerSubCellClass() {
 		// TODO: Use nib for cell once we drop iOS 8 and can use layouts
+		#if os(iOS)
 		if #available(iOS 9.0, tvOS 9.0, *) {
 			internalCollectionView.register(UINib(nibName: "PVGameLibraryCollectionViewCell", bundle: nil), forCellWithReuseIdentifier: PVGameLibraryCollectionViewCellIdentifier)
 		} else {
 			internalCollectionView.register(PVGameLibraryCollectionViewCell.self, forCellWithReuseIdentifier: PVGameLibraryCollectionViewCellIdentifier)
 		}
+		#else
+		internalCollectionView.register(PVGameLibraryCollectionViewCell.self, forCellWithReuseIdentifier: PVGameLibraryCollectionViewCellIdentifier)
+		#endif
 	}
 
 	required init?(coder aDecoder: NSCoder) {
@@ -380,12 +481,28 @@ class SaveStatesCollectionCell: RealmCollectinViewCell<PVSaveStateCollectionView
 	typealias CellClass = PVSaveStateCollectionViewCell
 
 	override var subCellSize : CGSize {
+		#if os(tvOS)
+		return CGSize(width: 300, height: 300)
+		#else
 		return CGSize(width: 124, height: 144)
+		#endif
 	}
 
 	@objc init(frame: CGRect) {
-		let saveStatesQuery: Results<SelectionObject> = SelectionObject.all.filter("game != nil").sorted(byKeyPath: #keyPath(SelectionObject.lastOpened), ascending: false).sorted(byKeyPath: #keyPath(SelectionObject.date), ascending: false)
+//		let sortDescriptors = [SortDescriptor(keyPath: #keyPath(SelectionObject.lastOpened), ascending: false), SortDescriptor(keyPath: #keyPath(SelectionObject.date), ascending: false)]
+		let sortDescriptors = [SortDescriptor(keyPath: #keyPath(SelectionObject.date), ascending: false)]
+
+		let saveStatesQuery: Results<SelectionObject> = SelectionObject.all.filter("game != nil").sorted(by: sortDescriptors)
+
 		super.init(frame: frame, query: saveStatesQuery, cellId: "SaveStateView")
+	}
+
+	@objc override func isIncluded(_ object : SelectionObject) -> Bool {
+		return !object.isAutosave || object.isNewestAutosave
+	}
+
+	@objc override var additionalFilter : Bool {
+		return true
 	}
 
 	override func registerSubCellClass() {

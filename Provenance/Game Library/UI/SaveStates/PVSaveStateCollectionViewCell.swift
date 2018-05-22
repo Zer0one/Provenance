@@ -25,6 +25,7 @@ class PVSaveStateCollectionViewCell: UICollectionViewCell {
 	@IBOutlet weak var imageView: UIImageView!
 	@IBOutlet weak var noScreenshotLabel: UILabel!
 	@IBOutlet weak var label: UILabel!
+	@IBOutlet weak var secondLabel: UILabel!
 
 	weak var saveState: PVSaveState? {
 		didSet {
@@ -35,19 +36,16 @@ class PVSaveStateCollectionViewCell: UICollectionViewCell {
                     imageView.layer.borderColor = UIColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.3).cgColor
                 }
 				let timeText = "\(PVSaveStateCollectionViewCell.dateFormatter.string(from: saveState.date)), \(PVSaveStateCollectionViewCell.timeFormatter.string(from: saveState.date))"
-				if label.numberOfLines > 1 {
-					let multipleCores = saveState.game.system.cores.count > 1
-					let system = saveState.game.system
-					var coreOrSystem : String = (multipleCores ? saveState.core.projectName : system?.shortNameAlt ?? system?.shortName ?? "")
-					if coreOrSystem.count > 0 {
-						coreOrSystem = " " + coreOrSystem
-					}
-					label.text = "\(saveState.game.title)\n\(timeText)" + coreOrSystem
-				} else {
-					label.text = timeText
+
+				let multipleCores = saveState.game.system.cores.count > 1
+				let system = saveState.game.system
+				var coreOrSystem : String = (multipleCores ? saveState.core.projectName : system?.shortNameAlt ?? system?.shortName ?? "")
+				if coreOrSystem.count > 0 {
+					coreOrSystem = " " + coreOrSystem
 				}
-                label.textColor = UIColor.white
-                label.alpha = 0.6
+
+				label.text = saveState.game.title
+				secondLabel.text = timeText + coreOrSystem
 			}
 
 			setNeedsLayout()
@@ -61,7 +59,7 @@ class PVSaveStateCollectionViewCell: UICollectionViewCell {
 		imageView.image = nil
 		label.text = nil
 #if os(tvOS)
-		self.label.alpha = 0
+//		self.label.alpha = 0
 		self.label.transform = .identity
 #endif
 	}
@@ -78,15 +76,32 @@ class PVSaveStateCollectionViewCell: UICollectionViewCell {
 
 #if os(tvOS)
 	override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
+		super.didUpdateFocus(in: context, with: coordinator)
+
 		coordinator.addCoordinatedAnimations({() -> Void in
 			if self.isFocused {
+				let yTrasform = self.label.bounds.height * -0.25
 				var transform = CGAffineTransform(scaleX: 1.25, y: 1.25)
-				transform = transform.translatedBy(x: 0, y: 0)
-				self.label.alpha = 1
-				self.label.transform = transform
+				transform = transform.translatedBy(x: 0, y: yTrasform * 2.0)
+//				self.label.alpha = 1
+				self.label.transform = transform.translatedBy(x: 0, y: yTrasform + 1)
+//				self.secondLabel.alpha = 1
+				self.secondLabel.transform = transform
+
+				self.superview?.bringSubview(toFront: self)
+
+				let labelBGColor = UIColor.black.withAlphaComponent(0.8)
+				self.label.backgroundColor = labelBGColor
+				self.secondLabel.backgroundColor = labelBGColor
 			} else {
-				self.label.alpha = 0
+//				self.label.alpha = 0
 				self.label.transform = .identity
+//				self.secondLabel.alpha = 0
+				self.secondLabel.transform = .identity
+
+				let labelBGColor = UIColor.clear
+				self.label.backgroundColor = labelBGColor
+				self.secondLabel.backgroundColor = labelBGColor
 			}
 		}) {() -> Void in }
 	}
