@@ -174,6 +174,10 @@ extension UIImageView {
 	}
 }
 
+protocol GameLibraryCollectionViewDelegate : class {
+	func promptToDeleteGame(_ game : PVGame, completion: @escaping ((_ deleted: Bool) -> Swift.Void))
+}
+
 //@IBDesignable
 class CornerBadgeView : UIView {
 	enum FillCorner {
@@ -326,10 +330,13 @@ extension UIImage {
 }
 
 class PVGameLibraryCollectionViewCell: UICollectionViewCell {
+
+	weak var delegate : GameLibraryCollectionViewDelegate?
+
 	@IBOutlet private(set) var imageView: UIImageView! {
 		didSet {
 			if #available(iOS 9.0, tvOS 9.0, *) {
-
+				imageView.translatesAutoresizingMaskIntoConstraints = false
 			} else {
 				imageView.contentMode = .scaleAspectFit
 				imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -338,9 +345,6 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 			#if os(iOS)
 			//Ignore Smart Invert
 			imageView.ignoresInvertColors = true
-			#else
-			imageView.adjustsImageWhenAncestorFocused = true
-			imageView.clipsToBounds = false
 			#endif
 		}
 	}
@@ -365,8 +369,12 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 			titleLabel.alpha = 0
 			titleLabel.textColor = UIColor.white
 			titleLabel.layer.masksToBounds = false
-			titleLabel.shadowColor = UIColor.black.withAlphaComponent(0.8)
-			titleLabel.shadowOffset = CGSize(width: -1, height: 1)
+//			titleLabel.shadowColor = UIColor.black.withAlphaComponent(0.8)
+//			titleLabel.shadowOffset = CGSize(width: -1, height: 1)
+			if #available(tvOS 10.0, *) {
+				titleLabel.adjustsFontForContentSizeCategory = true
+			}
+			titleLabel.adjustsFontSizeToFitWidth = true
 
 			#else // iOS
 
@@ -426,6 +434,8 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 	@IBOutlet weak var missingFileWidthContraint: NSLayoutConstraint?
 	@IBOutlet weak var missingFileHeightContraint: NSLayoutConstraint?
 	@IBOutlet weak var titleLabelHeightConstraint: NSLayoutConstraint?
+	@IBOutlet weak var deleteActionView: UIView?
+	@IBOutlet weak var artworkContainerViewHeightConstraint: NSLayoutConstraint?
 
 	class func cellSize(forImageSize imageSize: CGSize) -> CGSize {
 		let size : CGSize
@@ -506,7 +516,11 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
                 maybeKey = !originalArtworkURL.isEmpty ? originalArtworkURL : nil
             }
             if let key = maybeKey {
-                operation = PVMediaCache.shareInstance().image(forKey: key, completion: {(_ image: UIImage?) -> Void in
+				operation = PVMediaCache.shareInstance().image(forKey: key, completion: {(_ key: String, _ image: UIImage?) -> Void in
+					guard let game = self.game, key == game.customArtworkURL || key == game.originalArtworkURL else {
+						// We must have recyclied already
+						return
+					}
 					DispatchQueue.main.async {
 						var artworkText: String
 						if PVSettingsModel.shared.showGameTitles {
@@ -517,9 +531,9 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 						let artwork: UIImage? = image ?? self.image(withText: artworkText)
 						self.imageView.image = artwork //?.imageWithBorder(width: 1, color: UIColor.red) //?.withRenderingMode(.alwaysTemplate)
 						#if os(tvOS)
-						let width: CGFloat = self.frame.width
-						let boxartSize = CGSize(width: width, height: width / game.boxartAspectRatio.rawValue)
-						self.imageView.frame = CGRect(x: 0, y: 0, width: width, height: boxartSize.height)
+						let maxAllowedHeight = self.contentView.bounds.height - self.titleLabelHeightConstraint!.constant + 5
+						let height: CGFloat = min(maxAllowedHeight, self.contentView.bounds.width / game.boxartAspectRatio.rawValue)
+						self.artworkContainerViewHeightConstraint?.constant = height
 						#else
 						if #available(iOS 9.0, tvOS 9.0, *) {
 						} else {
@@ -590,18 +604,112 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 	override init(frame: CGRect) {
 		super.init(frame: frame)
 
-		#if os(iOS)
-		if #available(iOS 9.0, *) {
+		if #available(iOS 9.0, tvOS 9.0, *) {
 			// Using nibs
 		} else {
 			oldViewInit()
 		}
-		#else
-		oldViewInit()
-		#endif
 
 		titleLabel.isHidden = !PVSettingsModel.shared.showGameTitles
 	}
+
+	#if os(iOS)
+	private func setupPanGesture() {
+		if #available(iOS 9.0, tvOS 9.0, *) {
+
+			let panGesture = UIPanGestureRecognizer(target: self, action: #selector(PVGameLibraryCollectionViewCell.containerPanGestureRecognized(panGesture:)))
+			panGesture.cancelsTouchesInView = true
+			panGesture.delegate = self
+			panGesture.maximumNumberOfTouches = 1
+			self.addGestureRecognizer(panGesture)
+
+			if let deleteActionView = deleteActionView {
+				deleteActionView.removeFromSuperview()
+				deleteActionView.translatesAutoresizingMaskIntoConstraints = false
+				deleteActionView.frame = contentView.bounds
+				backgroundView = UIView(frame: bounds)
+				backgroundView?.isOpaque = true
+				backgroundView?.backgroundColor = Theme.currentTheme.gameLibraryBackground
+				contentView.backgroundColor = Theme.currentTheme.gameLibraryBackground
+				backgroundColor = Theme.currentTheme.gameLibraryBackground
+				isOpaque = true
+				contentView.isOpaque = true
+
+				insertSubview(deleteActionView, belowSubview: contentView)
+
+				deleteActionView.subviews.forEach {
+					if let label = $0 as? UILabel {
+						label.textColor = UIColor.white
+					}
+				}
+
+				deleteActionView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor).isActive = true
+				deleteActionView.bottomAnchor.constraint(equalTo: imageView.bottomAnchor).isActive = true
+				deleteActionView.topAnchor.constraint(equalTo: self.topAnchor).isActive = true
+				deleteActionView.leadingAnchor.constraint(equalTo: self.leadingAnchor).isActive = true
+			}
+		}
+	}
+
+	@objc
+	private func containerPanGestureRecognized(panGesture : UIPanGestureRecognizer) {
+		guard let delegate = delegate, let game = game else {
+			return
+		}
+
+		struct Holder {
+			static var originalLocation : CGPoint = .zero
+		}
+
+		switch panGesture.state {
+		case .began:
+			Holder.originalLocation = panGesture.location(in: contentView)
+			self.deleteActionView?.alpha = 1
+		case .changed:
+			let newX = min(max(panGesture.location(in: self).x - Holder.originalLocation.x, contentView.frame.width * 0.85 * -1), 0)
+
+			var f = contentView.frame
+			f.origin.x = newX
+
+			contentView.frame = f
+		case .ended:
+			var f = contentView.frame
+
+			let animateBack : (() -> Void) = {
+				f.origin.x = 0
+				UIView.animate(withDuration: 0.25, delay: 0.1, usingSpringWithDamping: 0.75, initialSpringVelocity: 1, options: .beginFromCurrentState, animations: {
+					self.deleteActionView?.alpha = 0
+					self.contentView.frame = f
+				}) { (completed) in
+
+				}
+			}
+
+			let swipeDistanceRequired = contentView.frame.width * 0.6 * -1
+			let swipedFarEnough = contentView.frame.origin.x < swipeDistanceRequired
+			if swipedFarEnough {
+				let finalX = contentView.frame.width * 0.9 * -1
+				f.origin.x = finalX
+				UIView.animate(withDuration: 0.1) {
+					self.contentView.frame = f
+				}
+				delegate.promptToDeleteGame(game) { (deleted) in
+					animateBack()
+				}
+			} else {
+				animateBack()
+			}
+		case .cancelled:
+			var f = contentView.frame
+			f.origin.x = 0
+			UIView.animate(withDuration: 0.25) {
+				self.contentView.frame = f
+			}
+		default:
+			break
+		}
+	}
+	#endif
 
 	private func oldViewInit() {
 		var imageHeight: CGFloat = frame.size.height
@@ -630,6 +738,9 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 		discCountContainerView?.addSubview(discCountLabel!)
 
 		if #available(iOS 9.0, tvOS 9.0, *) {
+			discCountContainerView?.translatesAutoresizingMaskIntoConstraints = false
+			discCountLabel?.translatesAutoresizingMaskIntoConstraints = false
+
 			discCountContainerView?.trailingAnchor.constraint(equalTo: imageView.trailingAnchor).isActive = true
 			discCountContainerView?.bottomAnchor.constraint(equalTo: imageView.bottomAnchor).isActive = true
 			discCountContainerView?.widthAnchor.constraint(equalTo: imageView.widthAnchor, multiplier: 0.25, constant: 0).isActive = true
@@ -637,8 +748,7 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 
 			discCountLabel?.centerXAnchor.constraint(equalTo: discCountContainerView!.centerXAnchor).isActive = true
 			discCountLabel?.centerYAnchor.constraint(equalTo: discCountContainerView!.centerYAnchor).isActive = true
-			discCountLabel?.leadingAnchor.constraint(equalTo: discCountContainerView!.leadingAnchor, constant: 8.0).isActive = true
-			discCountLabel?.trailingAnchor.constraint(equalTo: discCountContainerView!.trailingAnchor, constant: 8.0).isActive = true
+			discCountLabel?.widthAnchor.constraint(equalTo: discCountContainerView!.widthAnchor, multiplier:1, constant: -16).isActive = true
 			discCountLabel?.heightAnchor.constraint(equalTo: discCountContainerView!.heightAnchor, multiplier: 0.75, constant: 0).isActive = true
 		} else {
 			// TODO: iOS 8 layout, or just hide them?
@@ -660,6 +770,11 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 
 		titleLabel.isHidden = !PVSettingsModel.shared.showGameTitles
 
+		#if os(iOS)
+		setupPanGesture()
+		#else
+
+		#endif
 //		contentView.layer.borderWidth = 1.0
 //		contentView.layer.borderColor = UIColor.white.cgColor
 //
@@ -704,6 +819,12 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 		topRightCornerBadgeView?.isHidden = true
 		missingFileView?.isHidden = true
         token?.invalidate()
+		
+		// Clear image loading from the queue is not needed
+		if let operation = operation, !operation.isFinished, !operation.isExecuting {
+			operation.cancel()
+		}
+
         token = nil
     }
 
@@ -712,16 +833,21 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 
 		titleLabel.isHidden = !PVSettingsModel.shared.showGameTitles
 #if os(tvOS)
-        let titleTransform: CGAffineTransform = titleLabel.transform
-        if isFocused {
-            titleLabel.transform = .identity
-        }
-        contentView.bringSubview(toFront: titleLabel ?? UIView())
+		if let game = game {
+			let height: CGFloat = self.contentView.bounds.width / game.boxartAspectRatio.rawValue
+			self.artworkContainerViewHeightConstraint?.constant = height
+		} else {
+			let height: CGFloat = self.contentView.bounds.height
+			self.artworkContainerViewHeightConstraint?.constant = height
+		}
+
+//        let titleTransform: CGAffineTransform = titleLabel.transform
+//        if isFocused {
+//            titleLabel.transform = .identity
+//        }
+        contentView.bringSubview(toFront: titleLabel!)
         titleLabel.sizeToFit()
-        titleLabel.setWidth(contentView.bounds.size.width)
-        titleLabel.setOriginX(0)
-        titleLabel.setOriginY(imageView.frame.maxY)
-        titleLabel.transform = titleTransform
+//        titleLabel.transform = titleTransform
 #else
 		if #available(iOS 9.0, tvOS 9.0, *) {
 			self.contentView.frame = self.bounds
@@ -743,7 +869,7 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 			titleLabelHeightConstraint?.constant = 0.0
 		}
 		#endif
-    }
+	}
 
 	func updateImageConstraints() {
 		let imageContentFrame = imageView.contentClippingRect
@@ -774,7 +900,9 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 		if let game = game {
 			let ratio = game.boxartAspectRatio.rawValue
 			var imageHeight = size.height
-			imageHeight *= PVSettingsModel.shared.showGameTitles ? 0.85 : 1.0
+			if PVSettingsModel.shared.showGameTitles {
+				imageHeight -= titleLabel.bounds.height
+			}
 			let width = imageHeight * ratio
 			return CGSize(width: width, height: size.height)
 		} else {
@@ -782,7 +910,42 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 		}
 	}
 
-	override var preferredFocusedView: UIView? {
-		return artworkContainerView ?? imageView
+//	override var preferredFocusedView: UIView? {
+//		return artworkContainerView ?? imageView
+//	}
+
+	#if os(tvOS)
+	override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
+		super.didUpdateFocus(in: context, with: coordinator)
+
+		coordinator.addCoordinatedAnimations({() -> Void in
+			if self.isFocused {
+				let transform = CGAffineTransform(scaleX: 1.25, y: 1.25)
+
+				self.superview?.bringSubview(toFront: self)
+				if PVSettingsModel.shared.showGameTitles {
+					let yTrasform : CGFloat = 55.0
+					self.titleLabel.transform = transform.translatedBy(x: 0, y: yTrasform)
+					self.titleLabel.alpha = 1.0
+				}
+				self.artworkContainerView!.transform = transform
+			} else {
+				self.artworkContainerView!.transform = .identity
+				self.titleLabel.transform = .identity
+				self.titleLabel.alpha = 0.0
+			}
+		}) {() -> Void in }
+	}
+	#endif
+}
+
+extension PVGameLibraryCollectionViewCell : UIGestureRecognizerDelegate {
+	override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+		if let panGestureRecognizer = gestureRecognizer as? UIPanGestureRecognizer {
+			let velocity = panGestureRecognizer.velocity(in: self)
+			return delegate != nil && game != nil && velocity.x < -150 && abs(velocity.y) < 75
+		} else {
+			return super.gestureRecognizerShouldBegin(gestureRecognizer)
+		}
 	}
 }
