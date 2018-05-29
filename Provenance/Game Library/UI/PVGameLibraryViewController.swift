@@ -88,7 +88,7 @@ class PVDocumentPickerViewController: UIDocumentPickerViewController {
 }
 #endif
 
-class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavigationControllerDelegate, GameLaunchingViewController, GameSharingViewController {
+class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavigationControllerDelegate, GameLaunchingViewController, GameSharingViewController, WebServerActivatorController {
 
 	lazy var collectionViewZoom : CGFloat = CGFloat(PVSettingsModel.shared.gameLibraryScale)
 
@@ -143,7 +143,6 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 				}
 
 				if isViewLoaded {
-					sortOptionBarButtonItem?.title = "Sort: \(currentSort.rawValue)"
 					fetchGames()
 					collectionView?.reloadData()
 				}
@@ -248,7 +247,7 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 
 			// Navigation bar large titles
 			navigationController?.navigationBar.prefersLargeTitles = false
-			navigationItem.title = "Library"
+			//navigationItem.title = "Library"
 
 			// Create a search contorller
 			let searchController = UISearchController(searchResultsController: nil)
@@ -266,7 +265,7 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 		#endif
 
         //load the config file
-        title = "Library"
+        //title = "Library"
 
         let layout = PVGameLibraryCollectionFlowLayout()
 		layout.scrollDirection = .vertical
@@ -338,8 +337,6 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
             registerForPreviewing(with: self, sourceView: collectionView)
         }
         #endif
-
-		sortOptionBarButtonItem?.title = "Sort: \(currentSort.rawValue)"
 
         loadGameFromShortcut()
         becomeFirstResponder()
@@ -437,19 +434,24 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 	class SystemSection : Equatable {
 		let id : String
 		let system : PVSystem
+		let gameLibraryGameController : PVGameLibraryViewController
 
 		var sortOrder : SortOptions {
 			didSet {
 				if sortOrder != oldValue {
-					storedQuery = nil
+					self.storedQuery = generateQuery()
+					self.notificationToken = generateToken()
 				}
 			}
 		}
 
-		init(system : PVSystem, sortOrder : SortOptions = .title) {
+		init(system : PVSystem, gameLibraryViewController: PVGameLibraryViewController, sortOrder : SortOptions = .title) {
 			self.system = system
 			self.id = system.identifier
 			self.sortOrder = sortOrder
+			self.gameLibraryGameController = gameLibraryViewController
+			self.storedQuery = generateQuery()
+			self.notificationToken = generateToken()
 		}
 
 		var notificationToken : NotificationToken?
@@ -461,6 +463,7 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 			} else {
 				let newQuery = generateQuery()
 				storedQuery = newQuery
+				notificationToken = generateToken()
 				return newQuery
 			}
 		}
@@ -479,6 +482,50 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 			sortDescriptors.append(SortDescriptor(keyPath: #keyPath(PVGame.title), ascending: true))
 
 			return system.games.sorted(by: sortDescriptors)
+		}
+
+		private func generateToken() -> NotificationToken {
+			let newToken = query.observe {[unowned self] (changes: RealmCollectionChange<Results<PVGame>>) in
+				switch changes {
+				case .initial:
+					if self.gameLibraryGameController.isInSearch {
+						return
+					}
+					// New additions already handled by systems token
+					//                guard let collectionView = self.collectionView else {
+					//                    return
+					//                }
+					//                let systemsCount = self.systems.count
+					//                if systemsCount > 0 {
+					//                    let indexes = self.systemsSectionOffset..<(systemsCount + self.systemsSectionOffset)
+					//                    let indexSet = IndexSet(indexes)
+					//                    collectionView.insertSections(indexSet)
+					//                }
+					// Query results have changed, so apply them to the UICollectionView
+					guard let indexOfSystem = self.gameLibraryGameController.systems?.index(of: self.system) else {
+						WLOG("Index of system changed.")
+						return
+					}
+					let section = indexOfSystem + self.gameLibraryGameController.systemsSectionOffset
+					self.gameLibraryGameController.collectionView?.reloadSections(IndexSet(integer: section))
+				case .update(_, let deletions, let insertions, let modifications):
+					if self.gameLibraryGameController.isInSearch {
+						return
+					}
+
+					// Query results have changed, so apply them to the UICollectionView
+					guard let indexOfSystem = self.gameLibraryGameController.systems?.index(of: self.system) else {
+						WLOG("Index of system changed.")
+						return
+					}
+					let section = indexOfSystem + self.gameLibraryGameController.systemsSectionOffset
+					self.gameLibraryGameController.handleUpdate(forSection: section, deletions: deletions, insertions: insertions, modifications: modifications, needsInsert: false)
+				case .error(let error):
+					// An error occurred while opening the Realm file on the background worker thread
+					fatalError("\(error)")
+				}
+			}
+			return newToken
 		}
 
 		deinit {
@@ -503,47 +550,15 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 	}
 
     func addSectionToken(forSystem system: PVSystem) {
-		let newSystemSection = SystemSection(system: system, sortOrder: currentSort)
-
-        let newToken = newSystemSection.query.observe {[unowned self] (changes: RealmCollectionChange<Results<PVGame>>) in
-            switch changes {
-            case .initial:
-                // New additions already handled by systems token
-//                guard let collectionView = self.collectionView else {
-//                    return
-//                }
-//                let systemsCount = self.systems.count
-//                if systemsCount > 0 {
-//                    let indexes = self.systemsSectionOffset..<(systemsCount + self.systemsSectionOffset)
-//                    let indexSet = IndexSet(indexes)
-//                    collectionView.insertSections(indexSet)
-//                }
-                break
-            case .update(_, let deletions, let insertions, let modifications):
-				if self.isInSearch {
-					return
-				}
-
-                // Query results have changed, so apply them to the UICollectionView
-                guard let indexOfSystem = self.systems?.index(of: system) else {
-                    return
-                }
-                let section = indexOfSystem + self.systemsSectionOffset
-                self.handleUpdate(forSection: section, deletions: deletions, insertions: insertions, modifications: modifications, needsInsert: false)
-            case .error(let error):
-                // An error occurred while opening the Realm file on the background worker thread
-                fatalError("\(error)")
-            }
-        }
-		newSystemSection.notificationToken = newToken
-        systemSectionsTokens[newSystemSection.id] = newSystemSection
+		let newSystemSection = SystemSection(system: system, gameLibraryViewController: self, sortOrder: currentSort)
+		systemSectionsTokens[newSystemSection.id] = newSystemSection
     }
 
     func initRealmResultsStorage() {
-        systems = PVSystem.all.sorted(byKeyPath: #keyPath(PVSystem.identifier)).filter("games.@count > 0")
+        systems = PVSystem.all.filter("games.@count > 0").sorted(byKeyPath: #keyPath(PVSystem.identifier))
 		saveStates = PVSaveState.all.filter("game != nil").sorted(byKeyPath: #keyPath(PVSaveState.lastOpened), ascending: false).sorted(byKeyPath: #keyPath(PVSaveState.date), ascending: false)
         recentGames = PVRecentGame.all.filter("game != nil").sorted(byKeyPath: #keyPath(PVRecentGame.lastPlayedDate), ascending: false)
-        favoriteGames = RomDatabase.sharedInstance.all(PVGame.self, where: "isFavorite", value: true).sorted(byKeyPath: #keyPath(PVGame.title), ascending: false)
+        favoriteGames = PVGame.all.filter("isFavorite == YES").sorted(byKeyPath: #keyPath(PVGame.title), ascending: false)
     }
 
     func deinitRealmResultsStorage() {
@@ -866,48 +881,6 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
     }
 
 #endif
-    // Show "Web Server Active" alert view
-    func showServerActiveAlert() {
-        let message = """
-            Read Importing ROMs wiki…
-            Upload/Download files at:
-
-
-            """
-        let alert = UIAlertController(title: "Web Server Active", message: message, preferredStyle: .alert)
-        let ipField = UITextView(frame: CGRect(x: 20, y: 75, width: 231, height: 70))
-        ipField.backgroundColor = UIColor.clear
-        ipField.textAlignment = .center
-        ipField.font = UIFont.systemFont(ofSize: 13)
-        ipField.textColor = UIColor.gray
-        let ipFieldText = """
-            WebUI: \(PVWebServer.shared.urlString)
-            WebDav: \(PVWebServer.shared.webDavURLString)
-            """
-        ipField.text = ipFieldText
-        ipField.isUserInteractionEnabled = false
-        alert.view.addSubview(ipField)
-        alert.addAction(UIAlertAction(title: "Stop", style: .cancel, handler: {(_ action: UIAlertAction) -> Void in
-            PVWebServer.shared.stopServers()
-            if self.needToShowConflictsAlert {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: {
-                    self.showConflictsAlert()
-                })
-            }
-        }))
-
-        if #available(iOS 9.0, *) {
-            #if os(iOS)
-                let viewAction = UIAlertAction(title: "View", style: .default, handler: {(_ action: UIAlertAction) -> Void in
-                    self.showServer()
-                })
-                alert.addAction(viewAction)
-            #endif
-        } else {
-            // Fallback on earlier versions
-        }
-        present(alert, animated: true) {() -> Void in }
-    }
 
     @IBAction func sortButtonTapped(_ sender: Any) {
         let optionsTableView = sortOptionsTableView
@@ -918,11 +891,19 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 //        avc.popoverPresentationController?.delegate = self
         avc.popoverPresentationController?.barButtonItem = sortOptionBarButtonItem
 		avc.popoverPresentationController?.sourceView = collectionView
+		avc.preferredContentSize = CGSize(width: 300, height: 500)
+		#else
+//		providesPresentationContextTransitionStyle = true
+//		definesPresentationContext = true
+		if #available(tvOS 11.0, *) {
+			avc.modalPresentationStyle = .blurOverFullScreen
+		} else {
+			avc.modalPresentationStyle = .currentContext
+		}
+		avc.modalTransitionStyle = .coverVertical
         #endif
-        avc.preferredContentSize = CGSize(width: 300, height: 500)
 		sortOptionsTableView.reloadData()
         present(avc, animated: true, completion: nil)
-
     }
     // MARK: - Filesystem Helpers
 	@IBAction func getMoreROMs(_ sender: Any) {
@@ -1274,7 +1255,7 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
         }
 
         #if os(iOS)
-            // Add to split database
+            // Add to spotlight database
             if #available(iOS 9.0, *) {
                 // TODO: Would be better to pass the PVGame direclty using threads.
                 // https://realm.io/blog/obj-c-swift-2-2-thread-safe-reference-sort-properties-relationships/
@@ -1829,8 +1810,6 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 		searchResultsToken = nil
         collectionView?.reloadData()
     }
-
-
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, referenceSizeForHeaderInSection section: Int) -> CGSize {
 #if os(tvOS)
