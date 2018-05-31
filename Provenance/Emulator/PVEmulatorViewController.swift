@@ -82,6 +82,8 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 
     weak var menuActionSheet: UIAlertController?
     var isShowingMenu: Bool = false
+    
+    let minimumPlayTimeToMakeAutosave : Double = 60
 
     required init(game: PVGame, core: PVEmulatorCore) {
         self.core = core
@@ -651,14 +653,25 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
             self.perform(#selector(self.takeScreenshot), with: nil, afterDelay: 0.1)
         }))
 #endif
-		if core.supportsSaveStates {
-			actionsheet.addAction(UIAlertAction(title: "Save States", style: .default, handler: {(_ action: UIAlertAction) -> Void in
-				self.perform(#selector(self.showSaveStateMenu), with: nil, afterDelay: 0.1)
-			}))
-		}
+        actionsheet.addAction(UIAlertAction(title: "Game Info", style: .default, handler: {(_ action: UIAlertAction) -> Void in
+            let sb = UIStoryboard(name: "Provenance", bundle: nil)
+            let moreInfoViewContrller = sb.instantiateViewController(withIdentifier: "gameMoreInfoVC") as? PVGameMoreInfoViewController
+            moreInfoViewContrller?.game = self.game
+            moreInfoViewContrller?.showsPlayButton = false
+            moreInfoViewContrller?.navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(self.hideModeInfo))
+            let newNav = UINavigationController(rootViewController: moreInfoViewContrller ?? UIViewController())
+            self.present(newNav, animated: true) {() -> Void in }
+            self.isShowingMenu = false
+            self.enableContorllerInput(false)
+        }))
         actionsheet.addAction(UIAlertAction(title: "Game Speed", style: .default, handler: {(_ action: UIAlertAction) -> Void in
             self.perform(#selector(self.showSpeedMenu), with: nil, afterDelay: 0.1)
         }))
+        if core.supportsSaveStates {
+            actionsheet.addAction(UIAlertAction(title: "Save States", style: .default, handler: {(_ action: UIAlertAction) -> Void in
+                self.perform(#selector(self.showSaveStateMenu), with: nil, afterDelay: 0.1)
+            }))
+        }
         actionsheet.addAction(UIAlertAction(title: "Reset", style: .default, handler: {(_ action: UIAlertAction) -> Void in
             if PVSettingsModel.sharedInstance().autoSave, self.core.supportsSaveStates {
                 try? self.autoSaveState()
@@ -668,18 +681,12 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
             self.isShowingMenu = false
             self.enableContorllerInput(false)
         }))
-        actionsheet.addAction(UIAlertAction(title: "Game Info", style: .default, handler: {(_ action: UIAlertAction) -> Void in
-            let sb = UIStoryboard(name: "Provenance", bundle: nil)
-            let moreInfoViewContrller = sb.instantiateViewController(withIdentifier: "gameMoreInfoVC") as? PVGameMoreInfoViewController
-            moreInfoViewContrller?.game = self.game
-            moreInfoViewContrller?.showsPlayButton = false
-            moreInfoViewContrller?.navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(self.hideModeInfo))
-            let newNav = UINavigationController(rootViewController: moreInfoViewContrller ?? UIViewController())
-            self.present(newNav, animated: true) {() -> Void in }
-			self.isShowingMenu = false
-			self.enableContorllerInput(false)
-        }))
-        actionsheet.addAction(UIAlertAction(title: "Return to Game Library", style: .destructive, handler: {(_ action: UIAlertAction) -> Void in
+        var quitTitle = "Quit"
+        if let lastPlayed = game.lastPlayed, (lastPlayed.timeIntervalSinceNow * -1) > minimumPlayTimeToMakeAutosave && PVSettingsModel.shared.autoSave {
+            quitTitle = "Save & Quit"
+        }
+
+        actionsheet.addAction(UIAlertAction(title: quitTitle, style: .destructive, handler: {(_ action: UIAlertAction) -> Void in
             self.quit()
         }))
         let resumeAction = UIAlertAction(title: "Resume", style: .cancel, handler: {(_ action: UIAlertAction) -> Void in
@@ -824,7 +831,6 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 			throw SaveStateError.saveStatesUnsupportedByCore
 		}
 
-		let minimumPlayTimeToMakeAutosave : Double = 60
 		if let lastPlayed = game.lastPlayed, (lastPlayed.timeIntervalSinceNow * -1)  < minimumPlayTimeToMakeAutosave {
 			ILOG("Haven't been playing game long enough to make an autosave")
 			return
