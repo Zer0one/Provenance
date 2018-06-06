@@ -7,7 +7,7 @@
 
 import Foundation
 import UIKit
-// import RealmSwift
+import RealmSwift
 
 public struct SystemDictionaryKeys {
     static let BIOSEntries         = "PVBIOSNames"
@@ -188,7 +188,7 @@ public class PVEmulatorConfiguration: NSObject {
 		#endif
     }()
 
-    static let cdBasedSystems: [PVSystem] = {
+    static var cdBasedSystems: [PVSystem] {
 		#if swift(>=4.1)
 		return systems.compactMap({ (system) -> PVSystem? in
 			guard system.usesCDs else {
@@ -204,7 +204,7 @@ public class PVEmulatorConfiguration: NSObject {
             return system
         })
 		#endif
-    }()
+	}
 
     // MARK: BIOS
     static let supportedBIOSFileExtensions: [String] = {
@@ -241,12 +241,20 @@ public class PVEmulatorConfiguration: NSObject {
         return documentsPath.appendingPathComponent("Save States", isDirectory: true)
     }()
 
+	static let screenShotsPath: URL = {
+		return documentsPath.appendingPathComponent("Screenshots", isDirectory: true)
+	}()
+
     static let biosesPath: URL = {
         return documentsPath.appendingPathComponent("BIOS", isDirectory: true)
     }()
 
-    static let archiveExtensions: [String] = ["zip", "7z", "rar"]
+    static let archiveExtensions: [String] = ["zip", "7z", "rar", "7zip", "gz", "gzip"]
     static let artworkExtensions: [String] = ["png", "jpg", "jpeg"]
+	static let specialExtensions: [String] = ["cue", "m3u", "svs", "mcr", "plist", "ccd", "img", "iso", "sub", "bin"]
+	static let allKnownExtensions: [String] = {
+		archiveExtensions + supportedROMFileExtensions + artworkExtensions + supportedBIOSFileExtensions + Array(supportedCDFileExtensions) + specialExtensions
+	}()
 
     @objc
     class func systemIDWantsStartAndSelectInMenu(_ systemID: String) -> Bool {
@@ -296,6 +304,15 @@ public class PVEmulatorConfiguration: NSObject {
     class func biosEntry(forFilename filename: String) -> PVBIOS? {
         return biosEntries.first { $0.expectedFilename == filename }
     }
+
+	private static let dateFormatter : DateFormatter = {
+		let df = DateFormatter()
+		df.dateFormat = "YYYY-MM-dd HH:mm:ss"
+		return df
+	}()
+	class func string(fromDate date : Date) -> String {
+		return dateFormatter.string(from: date)
+	}
 }
 
 public struct ClassInfo: CustomStringConvertible, Equatable {
@@ -470,6 +487,18 @@ public extension PVEmulatorConfiguration {
 
         return saveSavesPath
     }
+
+	class func screenshotsPath(forGame game: PVGame) -> URL {
+		let screenshotsPath = self.screenShotsPath.appendingPathComponent(game.system.shortName, isDirectory: true).appendingPathComponent(game.title, isDirectory: true)
+
+		do {
+			try FileManager.default.createDirectory(at: screenshotsPath, withIntermediateDirectories: true, attributes: nil)
+		} catch {
+			ELOG("Error creating screenshots directory: \(screenshotsPath.path) : \(error.localizedDescription)")
+		}
+
+		return screenshotsPath
+	}
 
     class func path(forGame game: PVGame) -> URL {
         return game.file.url

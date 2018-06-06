@@ -10,6 +10,7 @@
 import PVSupport
 import QuartzCore
 import UIKit
+import RealmSwift
 
 private weak var staticSelf: PVEmulatorViewController?
 
@@ -82,7 +83,7 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 
     weak var menuActionSheet: UIAlertController?
     var isShowingMenu: Bool = false
-    
+
     let minimumPlayTimeToMakeAutosave : Double = 60
 
     required init(game: PVGame, core: PVEmulatorCore) {
@@ -859,6 +860,10 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 				let imageURL = URL(fileURLWithPath: saveStatePath).appendingPathComponent("\(game.md5Hash)|\(Date().timeIntervalSinceReferenceDate).png")
 				do {
 					try pngData.write(to: imageURL)
+//					try RomDatabase.sharedInstance.writeTransaction {
+//						let newFile = PVImageFile(withURL: imageURL)
+//						game.screenShots.append(newFile)
+//					}
 				} catch let error {
 					presentError("Unable to write image to disk, error: \(error.localizedDescription)")
 				}
@@ -933,7 +938,7 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 		if core.projectVersion != state.createdWithCoreVersion {
 			let message =
 			"""
-			Save state created with version \(state.createdWithCoreVersion) but current \(core.projectName) core is version \(core.projectVersion).
+			Save state created with version \(state.createdWithCoreVersion ?? "nil") but current \(core.projectName) core is version \(core.projectVersion).
 			Save file may not load. Create a new save state to avoid this warning in the future.
 			"""
 			presentWarning(message, completion: loadSave)
@@ -982,6 +987,23 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 			DispatchQueue.global(qos: .default).async(execute: {() -> Void in
 				UIImageWriteToSavedPhotosAlbum(screenshot, nil, nil, nil)
 			})
+
+			if let pngData = UIImagePNGRepresentation(screenshot) {
+
+				let dateString = PVEmulatorConfiguration.string(fromDate: Date())
+
+				let fileName = game.title  + " - " + dateString + ".png"
+				let imageURL = PVEmulatorConfiguration.screenshotsPath(forGame: game).appendingPathComponent(fileName, isDirectory: false)
+				do {
+					try pngData.write(to: imageURL)
+					try RomDatabase.sharedInstance.writeTransaction {
+						let newFile = PVImageFile(withURL: imageURL)
+						game.screenShots.append(newFile)
+					}
+				} catch let error {
+					presentError("Unable to write image to disk, error: \(error.localizedDescription)")
+				}
+			}
 		}
 		self.core.setPauseEmulation(false)
 		self.isShowingMenu = false

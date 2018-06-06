@@ -7,7 +7,7 @@
 //
 
 import UIKit
-// import RealmSwift
+import RealmSwift
 #if os(iOS)
 import SafariServices
 import AssetsLibrary
@@ -21,6 +21,16 @@ import AssetsLibrary
  Wrap long press of UIGameLibrayVC to if !pushPop available, since all that stuff will be handled in this VC
  Add UICollectionView wrapper
  */
+#if os(iOS)
+extension UIImageView {
+	public override var ignoresInvertColors: Bool {
+		get {
+			return true
+		} set {
+		}
+	}
+}
+#endif
 
 // Special label that renders Countries as flag emojis when available
 class RegionLabel: LongPressLabel {
@@ -273,6 +283,13 @@ class PVGameMoreInfoViewController: UIViewController, GameLaunchingViewControlle
         #if os(iOS)
 		// Ignore Smart Invert
 		artworkImageView.ignoresInvertColors = true
+
+		if #available(iOS 9.0, *) {
+
+		} else {
+			// Fix iOS 8 colors
+			descriptionTextView.textColor = Theme.currentTheme.settingsCellText
+		}
         #endif
     }
 

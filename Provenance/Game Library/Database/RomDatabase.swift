@@ -7,7 +7,7 @@
 //
 
 import Foundation
-// import RealmSwift
+import RealmSwift
 import UIKit
 
 public extension Notification.Name {
@@ -260,6 +260,14 @@ public extension RomDatabase {
     public func all<T: Object>(_ type: T.Type, where keyPath: String, value: String) -> Results<T> {
         return realm.objects(T.self).filter(NSPredicate(format: "\(keyPath) == %@", value))
     }
+
+	public func all<T: Object>(_ type: T.Type, where keyPath: String, contains value: String) -> Results<T> {
+		return realm.objects(T.self).filter(NSPredicate(format: "\(keyPath) CONTAINS[cd] %@", value))
+	}
+
+	public func all<T: Object>(_ type: T.Type, where keyPath: String, beginsWith value: String) -> Results<T> {
+		return realm.objects(T.self).filter(NSPredicate(format: "\(keyPath) BEGINSWITH[cd] %@", value))
+	}
 
     public func all<T: Object>(_ type: T.Type, where keyPath: String, value: Bool) -> Results<T> {
         return realm.objects(T.self).filter(NSPredicate(format: "\(keyPath) == %@", NSNumber(value: value)))

@@ -14,7 +14,7 @@ import SafariServices
 import GameController
 import QuartzCore
 import UIKit
-// import RealmSwift
+import RealmSwift
 import CoreSpotlight
 
 let PVGameLibraryHeaderViewIdentifier = "PVGameLibraryHeaderView"
@@ -135,6 +135,31 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
     var needToShowConflictsAlert = false
 
     @IBOutlet var sortOptionsTableView: UITableView!
+	lazy var sortOptionsTableViewController: UIViewController = {
+		let optionsTableView = sortOptionsTableView
+		let avc = UIViewController()
+		avc.view = optionsTableView
+
+		#if os(iOS)
+		avc.modalPresentationStyle = .popover
+		//        avc.popoverPresentationController?.delegate = self
+		avc.popoverPresentationController?.barButtonItem = sortOptionBarButtonItem
+		avc.popoverPresentationController?.sourceView = collectionView
+		avc.preferredContentSize = CGSize(width: 300, height: 500)
+		avc.title = "Library Options"
+		#else
+		//		providesPresentationContextTransitionStyle = true
+		//		definesPresentationContext = true
+		if #available(tvOS 11.0, *) {
+			avc.modalPresentationStyle = .blurOverFullScreen
+		} else {
+			avc.modalPresentationStyle = .currentContext
+		}
+		avc.modalTransitionStyle = .coverVertical
+		#endif
+		return avc
+	}()
+
     var currentSort: SortOptions = .title {
         didSet {
 			if currentSort != oldValue {
@@ -247,7 +272,7 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 
 			// Navigation bar large titles
 			navigationController?.navigationBar.prefersLargeTitles = false
-			//navigationItem.title = "Library"
+			navigationItem.title = "Library"
 
 			// Create a search contorller
 			let searchController = UISearchController(searchResultsController: nil)
@@ -265,7 +290,7 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 		#endif
 
         //load the config file
-        //title = "Library"
+        title = "Library"
 
         let layout = PVGameLibraryCollectionFlowLayout()
 		layout.scrollDirection = .vertical
@@ -451,10 +476,16 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 			self.sortOrder = sortOrder
 			self.gameLibraryGameController = gameLibraryViewController
 			self.storedQuery = generateQuery()
-			self.notificationToken = generateToken()
+			DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+				self.notificationToken = self.generateToken()
+			}
 		}
 
-		var notificationToken : NotificationToken?
+		var notificationToken : NotificationToken? {
+			didSet {
+				oldValue?.invalidate()
+			}
+		}
 
 		private var storedQuery : Results<PVGame>?
 		var query : Results<PVGame> {
@@ -551,6 +582,9 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 
     func addSectionToken(forSystem system: PVSystem) {
 		let newSystemSection = SystemSection(system: system, gameLibraryViewController: self, sortOrder: currentSort)
+		if let existingToken = systemSectionsTokens[newSystemSection.id] {
+			existingToken.notificationToken?.invalidate()
+		}
 		systemSectionsTokens[newSystemSection.id] = newSystemSection
     }
 
@@ -569,7 +603,13 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
     }
 
     func registerForChange() {
+		systemsToken?.invalidate()
         systemsToken = systems!.observe { [unowned self] (changes: RealmCollectionChange) in
+//			guard self.presentedViewController == nil && self.isViewLoaded else {
+//				self.mustRefreshDataSource = true
+//				return
+//			}
+
             switch changes {
             case .initial(let result):
                 result.forEach { system in
@@ -578,7 +618,7 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 
                 // Results are now populated and can be accessed without blocking the UI
                 self.setUpGameLibrary()
-            case .update(_, let deletions, let insertions, _):
+            case .update(let systems, let deletions, let insertions, _):
 				if self.isInSearch {
 					return
 				}
@@ -590,11 +630,18 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 
                     let delectIndexes = deletions.map { $0 + self.systemsSectionOffset }
                     collectionView.deleteSections(IndexSet(delectIndexes))
+
+					deletions.forEach {
+						guard let systems = self.systems else {
+							return
+						}
+						let identifier = systems[$0].identifier
+						self.systemSectionsTokens.removeValue(forKey: identifier)
+					}
                     // Not needed since we have watchers per section
                     // collectionView.reloadSection(modifications.map{ return IndexPath(row: 0, section: $0 + systemsSectionOffset) })
-
                 }, completion: { (success) in
-
+					systems.filter({self.systemSectionsTokens[$0.identifier] == nil}).forEach { self.addSectionToken(forSystem: $0) }
                 })
             case .error(let error):
                 // An error occurred while opening the Realm file on the background worker thread
@@ -602,7 +649,13 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
             }
         }
 
+		savesStatesToken?.invalidate()
 		savesStatesToken = saveStates!.observe { [unowned self] (changes: RealmCollectionChange) in
+			guard self.presentedViewController == nil && self.isViewLoaded else {
+				self.mustRefreshDataSource = true
+				return
+			}
+
 			switch changes {
 			case .initial(let result):
 				if !result.isEmpty {
@@ -653,7 +706,13 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 			}
 		}
 
+		recentGamesToken?.invalidate()
         recentGamesToken = recentGames!.observe { [unowned self] (changes: RealmCollectionChange) in
+			guard self.presentedViewController == nil && self.isViewLoaded else {
+				self.mustRefreshDataSource = true
+				return
+			}
+
             switch changes {
             case .initial(let result):
                 if !result.isEmpty {
@@ -696,7 +755,13 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
             }
         }
 
+		favoritesToken?.invalidate()
         favoritesToken = favoriteGames!.observe { [unowned self] (changes: RealmCollectionChange) in
+			guard self.presentedViewController == nil && self.isViewLoaded else {
+				self.mustRefreshDataSource = true
+				return
+			}
+
             switch changes {
             case .initial(let result):
                 if !result.isEmpty {
@@ -776,9 +841,9 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
     func loadGameFromShortcut() {
         let appDelegate = UIApplication.shared.delegate as! PVAppDelegate
 
-        if let shortcutMD5 = appDelegate.shortcutItemMD5 {
-            loadGame(fromMD5: shortcutMD5)
-            appDelegate.shortcutItemMD5 = nil
+        if let shortcutItemGame = appDelegate.shortcutItemGame {
+			load(shortcutItemGame, sender: collectionView, core:nil)
+            appDelegate.shortcutItemGame = nil
         }
     }
 
@@ -814,6 +879,11 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
             cell?.updateFocusIfNeeded()
 #endif
         }
+
+		if (self.mustRefreshDataSource) {
+			fetchGames()
+			collectionView?.reloadData()
+		}
     }
 
 	var transitioningToSize: CGSize?
@@ -883,28 +953,26 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 #endif
 
     @IBAction func sortButtonTapped(_ sender: Any) {
-        let optionsTableView = sortOptionsTableView
-        let avc = UIViewController()
-        avc.view = optionsTableView
         #if os(iOS)
-        avc.modalPresentationStyle = .popover
-//        avc.popoverPresentationController?.delegate = self
-        avc.popoverPresentationController?.barButtonItem = sortOptionBarButtonItem
-		avc.popoverPresentationController?.sourceView = collectionView
-		avc.preferredContentSize = CGSize(width: 300, height: 500)
-		#else
-//		providesPresentationContextTransitionStyle = true
-//		definesPresentationContext = true
-		if #available(tvOS 11.0, *) {
-			avc.modalPresentationStyle = .blurOverFullScreen
-		} else {
-			avc.modalPresentationStyle = .currentContext
+		// Add done button to iPhone
+		// iPad is a popover do no done button needed
+		if traitCollection.horizontalSizeClass == .compact {
+			let navController = UINavigationController(rootViewController: sortOptionsTableViewController)
+			sortOptionsTableViewController.navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(PVGameLibraryViewController.dismissVC))
+			sortOptionsTableView.reloadData()
+			present(navController, animated: true, completion: nil)
+			return
 		}
-		avc.modalTransitionStyle = .coverVertical
-        #endif
+		#else
 		sortOptionsTableView.reloadData()
-        present(avc, animated: true, completion: nil)
+		present(avc, animated: true, completion: nil)
+        #endif
     }
+
+	@objc func dismissVC() {
+		dismiss(animated: true, completion: nil)
+	}
+
     // MARK: - Filesystem Helpers
 	@IBAction func getMoreROMs(_ sender: Any) {
         let reachability = Reachability.forLocalWiFi()
@@ -917,11 +985,19 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 		let actionSheet = UIAlertController(title: "Select Import Source", message: nil, preferredStyle: .actionSheet)
 
 		actionSheet.addAction(UIAlertAction(title: "Cloud & Local Files", style: .default, handler: { (alert) in
-			let extensions = [UTI.rom, UTI.zipArchive, UTI.sevenZipArchive, UTI.gnuZipArchive, UTI.jpeg, UTI.png, UTI.bios, UTI.data].map { $0.rawValue }
+			let extensions = [UTI.rom, UTI.artwork, UTI.savestate, UTI.zipArchive, UTI.sevenZipArchive, UTI.gnuZipArchive, UTI.image, UTI.jpeg, UTI.png, UTI.bios, UTI.data].map { $0.rawValue }
 
 			//        let documentMenu = UIDocumentMenuViewController(documentTypes: extensions, in: .import)
 			//        documentMenu.delegate = self
 			//        present(documentMenu, animated: true, completion: nil)
+			if #available(iOS 9.0, *) {
+				// iOS 8 need iCloud entitlements, check
+			} else {
+				if FileManager.default.ubiquityIdentityToken == nil {
+					self.presentMessage("iOS 8 reqires iCloud entitlements to use this feature.", title: "iCloud Error")
+					return
+				}
+			}
 
 			let documentPicker = PVDocumentPickerViewController(documentTypes: extensions, in: .import)
 			if #available(iOS 11.0, *) {
@@ -1505,13 +1581,17 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
             }))
 #if os(iOS)
 
-    #if DEBUG
             actionSheet.addAction(UIAlertAction(title: "Copy MD5 URL", style: .default, handler: {(_ action: UIAlertAction) -> Void in
                 let md5URL = "provenance://open?md5=\(game.md5Hash)"
                 UIPasteboard.general.string = md5URL
+				let alert = UIAlertController(title: nil, message: "URL copied to clipboard", preferredStyle: .alert)
+				self.present(alert, animated: true)
+				DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: {
+					alert.dismiss(animated: true, completion: nil)
+				})
             }))
-    #endif
-            actionSheet.addAction(UIAlertAction(title: "Choose Custom Artwork", style: .default, handler: {(_ action: UIAlertAction) -> Void in
+
+			actionSheet.addAction(UIAlertAction(title: "Choose Custom Artwork", style: .default, handler: {(_ action: UIAlertAction) -> Void in
                 self.chooseCustomArtwork(for: game)
             }))
 
