@@ -114,7 +114,9 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 				}
 				gameStartTime = Date()
 			} else {
-				updatePlayedDuration()
+				DispatchQueue.main.async { [weak self] in
+					self?.updatePlayedDuration()
+				}
 			}
 		}
 	}
@@ -124,11 +126,14 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
     }
 
     deinit {
+		// These need to be first or mutli-threaded cores can cause crashes on close
+		NotificationCenter.default.removeObserver(self)
+		core.removeObserver(self, forKeyPath: "isRunning")
+
         core.stopEmulation()
         //Leave emulation loop first
         gameAudio?.stop()
         NSSetUncaughtExceptionHandler(nil)
-        NotificationCenter.default.removeObserver(self)
         staticSelf = nil
         controllerViewController?.willMove(toParentViewController: nil)
         controllerViewController?.view?.removeFromSuperview()
@@ -141,7 +146,6 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
 #endif
         updatePlayedDuration()
 		destroyAutosaveTimer()
-		core.removeObserver(self, forKeyPath: "isRunning")
     }
 
 	private func initNotifcationObservers() {
@@ -588,6 +592,13 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
                 self.enableContorllerInput(false)
             }))
         }
+
+		if let optionCore = core as? CoreOptional {
+			actionsheet.addAction(UIAlertAction(title: "Core Options", style: .default, handler: { (action) in
+				self.showCoreOptions()
+			}))
+		}
+
         let controllerManager = PVControllerManager.shared
         let wantsStartSelectInMenu: Bool = PVEmulatorConfiguration.systemIDWantsStartAndSelectInMenu(game.system.identifier)
         var hideP1MenuActions = false
@@ -649,8 +660,24 @@ class PVEmulatorViewController: PVEmulatorViewControllerRootClass, PVAudioDelega
                 })
             }))
         }
+
+		if let actionableCore = core as? CoreActions, let actions = actionableCore.coreActions {
+			actions.forEach { coreAction in
+				actionsheet.addAction(UIAlertAction(title: coreAction.title, style: .default, handler: {(_ action: UIAlertAction) -> Void in
+					DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: {
+						actionableCore.selected(action: coreAction)
+						self.core.setPauseEmulation(false)
+						if coreAction.requiresReset {
+							self.core.resetEmulation()
+						}
+						self.isShowingMenu = false
+						self.enableContorllerInput(false)
+					})
+				}))
+			}
+		}
 #if os(iOS)
-        actionsheet.addAction(UIAlertAction(title: "Screenshot", style: .default, handler: {(_ action: UIAlertAction) -> Void in
+        actionsheet.addAction(UIAlertAction(title: "Save Screenshot", style: .default, handler: {(_ action: UIAlertAction) -> Void in
             self.perform(#selector(self.takeScreenshot), with: nil, afterDelay: 0.1)
         }))
 #endif
@@ -1257,4 +1284,77 @@ extension NSNumber {
     private convenience init(touchType: UITouchType) {
         self.init(integerLiteral: touchType.rawValue)
     }
+}
+
+extension PVEmulatorViewController {
+	func showCoreOptions() {
+		let nav = UINavigationController(rootViewController: CoreOptionsViewController(withCore: type(of: core) as! CoreOptional.Type))
+		present(nav, animated: true, completion: nil)
+	}
+}
+
+class CoreOptionsViewController : UITableViewController {
+	let core : CoreOptional.Type
+	init(withCore core : CoreOptional.Type) {
+		self.core = core
+		super.init(style: .grouped)
+	}
+
+	struct TableGroup {
+		let title : String
+		let options : [CoreOption]
+	}
+
+	lazy var groups : [TableGroup] = {
+		var rootOptions = [CoreOption]()
+
+		var groups = core.options.compactMap({ (option) -> TableGroup? in
+			switch option {
+			case .group(let display, let subOptions):
+				return TableGroup(title: display.title, options: subOptions)
+			default:
+				rootOptions.append(option)
+				return nil
+			}
+		})
+
+		if !rootOptions.isEmpty {
+			groups.insert(TableGroup(title: "", options: rootOptions), at: 0)
+		}
+
+		return groups
+	}()
+
+	required init?(coder aDecoder: NSCoder) {
+		fatalError("init(coder:) has not been implemented")
+	}
+
+	override func viewDidLoad() {
+		super.viewDidLoad()
+		tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
+	}
+
+	override func numberOfSections(in tableView: UITableView) -> Int {
+		return groups.count
+	}
+
+	override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+		return groups[section].options.count
+	}
+
+	override func sectionIndexTitles(for tableView: UITableView) -> [String]? {
+		return groups.map { return $0.title }
+	}
+
+	override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+		let cell : UITableViewCell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
+
+		let group = groups[indexPath.section]
+		let option = group.options[indexPath.row]
+
+		cell.textLabel?.text = option.key
+
+		return cell
+	}
+
 }

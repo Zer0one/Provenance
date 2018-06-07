@@ -577,10 +577,10 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
         }
 
 		self.missingFileView?.isHidden = !game.file.missing
-
 		self.setupBadges()
-        self.setupDots()
-
+        if !PVSettingsModel.shared.showGameBadges {
+            self.setupDots()
+        }
         setNeedsLayout()
         if #available(iOS 9.0, tvOS 9.0, *) {
             setNeedsFocusUpdate()
@@ -597,13 +597,9 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 		topRightCornerBadgeView.glyph = favorite ? "♥︎" : ""
 
 		if favorite {
-			topRightCornerBadgeView.fillColor = UIColor.red.withAlphaComponent(0.85)
+			topRightCornerBadgeView.fillColor = UIColor(rgb: 0xf71a32).withAlphaComponent(0.85)
 		} else if !hasPlayed {
-#if os(iOS)
-			topRightCornerBadgeView.fillColor = Theme.currentTheme.barButtonItemTint!.withAlphaComponent(0.85)
-#else
-            topRightCornerBadgeView.fillColor = UIColor.blue.withAlphaComponent(0.85)
-#endif
+            topRightCornerBadgeView.fillColor = UIColor(rgb: 0x17aaf7).withAlphaComponent(0.85)
         }
 
 		topRightCornerBadgeView.isHidden = hasPlayed && !favorite
@@ -630,19 +626,12 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
         guard let game = game else {
             return
         }
-
-        #if os(iOS)
-        if PVSettingsModel.shared.showGameBadges {
-            return
-        }
-        #endif
-
-        let hasPlayed = game.playCount > 0
-        let favorite = game.isFavorite
+		let hasPlayed = game.playCount > 0
+		let favorite = game.isFavorite
 
         var bullet = NSAttributedString(string: "")
-        let bulletFavoriteAttribute = [ NSAttributedStringKey.foregroundColor: UIColor.red ]
-        let bulletUnplayedAttribute = [ NSAttributedStringKey.foregroundColor: UIColor.blue ]
+        let bulletFavoriteAttribute = [ NSAttributedStringKey.foregroundColor: UIColor(rgb: 0xf71a32).withAlphaComponent(0.85) ]
+        let bulletUnplayedAttribute = [ NSAttributedStringKey.foregroundColor: UIColor(rgb: 0x17aaf7).withAlphaComponent(0.85)]
         let bulletFavorite = NSAttributedString(string: "♥︎ ", attributes: bulletFavoriteAttribute)
         let bulletUnplayed = NSAttributedString(string: "● ", attributes: bulletUnplayedAttribute)
         let attributedTitle = NSMutableAttributedString(string: game.title)
@@ -1035,7 +1024,8 @@ class PVGameLibraryCollectionViewCell: UICollectionViewCell {
 					if #available(tvOS 11, *) {
 					} else {
 						// Hide for non os 11 since we don't have the auto contentLayerView
-						let xySlideOffset = CGFloat(42)
+                        self.setupDots()
+                        let xySlideOffset = CGFloat(6)
 						if (self.topRightCornerBadgeView != nil) { self.topRightCornerBadgeView?.transform = transform.translatedBy(x: xySlideOffset, y: -xySlideOffset) }
 						if (self.discCountContainerView != nil) { self.discCountContainerView?.transform = transform.translatedBy(x: xySlideOffset, y: xySlideOffset)  }
 						if (self.discCountContainerView != nil) { self.discCountContainerView?.alpha = 0.0 }

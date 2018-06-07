@@ -310,6 +310,7 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 		#if os(tvOS)
 		collectionView.contentInset = UIEdgeInsets(top: 40, left: 80, bottom: 40, right: 80)
 		collectionView.remembersLastFocusedIndexPath = false
+		collectionView.clipsToBounds = false
 		#else
 		collectionView.backgroundColor = Theme.currentTheme.gameLibraryBackground
 		searchField?.keyboardAppearance = Theme.currentTheme.keyboardAppearance
@@ -533,12 +534,14 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 					//                    collectionView.insertSections(indexSet)
 					//                }
 					// Query results have changed, so apply them to the UICollectionView
-					guard let indexOfSystem = self.gameLibraryGameController.systems?.index(of: self.system) else {
-						WLOG("Index of system changed.")
-						return
-					}
-					let section = indexOfSystem + self.gameLibraryGameController.systemsSectionOffset
-					self.gameLibraryGameController.collectionView?.reloadSections(IndexSet(integer: section))
+					DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: {
+						guard let indexOfSystem = self.gameLibraryGameController.systems?.index(of: self.system) else {
+							WLOG("Index of system changed.")
+							return
+						}
+						let section = indexOfSystem + self.gameLibraryGameController.systemsSectionOffset
+						self.gameLibraryGameController.collectionView?.reloadSections(IndexSet(integer: section))
+					})
 				case .update(_, let deletions, let insertions, let modifications):
 					if self.gameLibraryGameController.isInSearch {
 						return
@@ -965,7 +968,7 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 		}
 		#else
 		sortOptionsTableView.reloadData()
-		present(avc, animated: true, completion: nil)
+		present(sortOptionsTableViewController, animated: true, completion: nil)
         #endif
     }
 
@@ -990,11 +993,11 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 			//        let documentMenu = UIDocumentMenuViewController(documentTypes: extensions, in: .import)
 			//        documentMenu.delegate = self
 			//        present(documentMenu, animated: true, completion: nil)
-			if #available(iOS 9.0, *) {
+			if #available(iOS 11.0, *) {
 				// iOS 8 need iCloud entitlements, check
 			} else {
 				if FileManager.default.ubiquityIdentityToken == nil {
-					self.presentMessage("iOS 8 reqires iCloud entitlements to use this feature.", title: "iCloud Error")
+					self.presentMessage("Your version reqires iCloud entitlements to use this feature. Please rebuild with iCloud entitlements enabled.", title: "iCloud Error")
 					return
 				}
 			}
@@ -1273,6 +1276,8 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 		// Scan each Core direxctory and looks for ROMs in them
 		let allSystems = PVSystem.all
 
+		let importOperation = BlockOperation()
+
 		allSystems.forEach { system in
 			let systemDir = system.romsDirectory
 			//URL(fileURLWithPath: config.documentsPath).appendingPathComponent(systemID).path
@@ -1291,21 +1296,27 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 			}
 
 			let systemRef = ThreadSafeReference(to: system)
-
-			gameImporter.serialImportQueue.addOperation {
+			importOperation.addExecutionBlock {
 				let realm = try! Realm()
 				guard let system = realm.resolve(systemRef) else {
 					return // person was deleted
 				}
 
 				self.gameImporter.getRomInfoForFiles(atPaths: contents, userChosenSystem: system)
-				if let completionHandler = self.gameImporter.completionHandler {
-					DispatchQueue.main.async {
-						completionHandler(self.gameImporter.encounteredConflicts)
-					}
+			}
+		}
+
+		let completionOperation = BlockOperation {
+			if let completionHandler = self.gameImporter.completionHandler {
+				DispatchQueue.main.async {
+					completionHandler(self.gameImporter.encounteredConflicts)
 				}
 			}
 		}
+
+		completionOperation.addDependency(importOperation)
+		gameImporter.serialImportQueue.addOperation(importOperation)
+		gameImporter.serialImportQueue.addOperation(completionOperation)
 	}
 
     func fetchGames() {
@@ -1572,7 +1583,11 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
                 self.moreInfo(for: game)
             }))
 
-            actionSheet.addAction(UIAlertAction(title: "Toggle Favorite", style: .default, handler: {(_ action: UIAlertAction) -> Void in
+            var favoriteTitle = "Favorite"
+            if game.isFavorite {
+                favoriteTitle = "Unfavorite"
+            }
+            actionSheet.addAction(UIAlertAction(title: favoriteTitle, style: .default, handler: {(_ action: UIAlertAction) -> Void in
                 self.toggleFavorite(for: game)
             }))
 
@@ -1591,11 +1606,11 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 				})
             }))
 
-			actionSheet.addAction(UIAlertAction(title: "Choose Custom Artwork", style: .default, handler: {(_ action: UIAlertAction) -> Void in
+			actionSheet.addAction(UIAlertAction(title: "Choose Cover", style: .default, handler: {(_ action: UIAlertAction) -> Void in
                 self.chooseCustomArtwork(for: game)
             }))
 
-            actionSheet.addAction(UIAlertAction(title: "Paste Custom Artwork", style: .default, handler: {(_ action: UIAlertAction) -> Void in
+            actionSheet.addAction(UIAlertAction(title: "Paste Cover", style: .default, handler: {(_ action: UIAlertAction) -> Void in
                 self.pasteCustomArtwork(for: game)
             }))
 
@@ -1626,9 +1641,9 @@ class PVGameLibraryViewController: UIViewController, UITextFieldDelegate, UINavi
 				}))
 			}
 
-			// conditinally show Restore Original Artwork
+			// conditionally show Restore Original Artwork
             if !game.originalArtworkURL.isEmpty, !game.customArtworkURL.isEmpty, game.originalArtworkURL != game.customArtworkURL {
-                actionSheet.addAction(UIAlertAction(title: "Restore Original Artwork", style: .default, handler: {(_ action: UIAlertAction) -> Void in
+                actionSheet.addAction(UIAlertAction(title: "Restore Cover", style: .default, handler: {(_ action: UIAlertAction) -> Void in
                     try! PVMediaCache.deleteImage(forKey: game.customArtworkURL)
 
                     try! RomDatabase.sharedInstance.writeTransaction {
