@@ -386,6 +386,9 @@ NSMutableDictionary *gb_cheatlist = [[NSMutableDictionary alloc] init];
 }
 
 # pragma mark - Display Mode
+- (GBPalette)currentDisplayMode {
+	return displayMode;
+}
 
 - (void)changeDisplayMode:(GBPalette)displayMode
 {
@@ -393,7 +396,7 @@ NSMutableDictionary *gb_cheatlist = [[NSMutableDictionary alloc] init];
         return;
 
     unsigned short *gbc_bios_palette = NULL;
-
+	self->displayMode = displayMode;
     switch (displayMode)
     {
         case GBPalettePeaSoupGreen:
