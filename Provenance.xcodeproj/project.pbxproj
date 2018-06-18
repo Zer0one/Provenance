@@ -3362,8 +3362,8 @@
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "./Carthage/xcode.sh iOS";
+			shellPath = /bin/bash;
+			shellScript = "source ~/.bash_profile && sh Carthage/xcode.sh iOS";
 		};
 		B38D938C20C7A06600ABCB16 /* Carthage */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -3376,8 +3376,8 @@
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "./Carthage/xcode.sh iOS";
+			shellPath = /bin/bash;
+			shellScript = "source ~/.bash_profile && sh Carthage/xcode.sh iOS";
 		};
 		B3A95F6B20BCF48E00635F3E /* Swiftlint */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -3418,8 +3418,8 @@
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "./Carthage/xcode.sh tvOS";
+			shellPath = /bin/bash;
+			shellScript = "source ~/.bash_profile && sh Carthage/xcode.sh tvOS";
 		};
 		B3E708A720B7E465005BAA5A /* Carthage */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -3432,8 +3432,8 @@
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "./Carthage/xcode.sh tvOS\n";
+			shellPath = /bin/bash;
+			shellScript = "source ~/.bash_profile && sh Carthage/xcode.sh tvOS";
 		};
 		B3F9CDA320315CA8007F808D /* Create Version.h */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -4959,7 +4959,7 @@
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_IDENTITY = "";
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				"CODE_SIGN_IDENTITY[sdk=iphonesimulator*]" = "";
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
